@@ -14,7 +14,7 @@ export interface LocationIntelligenceResponse {
 }
 
 /**
- * Fetch unified railway location intelligence from backend engine.
+ * Fetch unified railway location intelligence from backend engine with safe JSON checking.
  */
 export async function fetchLocationIntelligence(
   startLocation: string,
@@ -36,15 +36,14 @@ export async function fetchLocationIntelligence(
       })
     });
 
-    if (!res.ok) {
-      console.warn(`[LocationIntelligence] HTTP ${res.status}`);
-      return null;
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
+      const json: LocationIntelligenceResponse = await res.json();
+      return json.success ? json.data : null;
     }
-
-    const json: LocationIntelligenceResponse = await res.json();
-    return json.success ? json.data : null;
+    return null;
   } catch (err) {
-    console.error('[LocationIntelligence] Failed to query location intelligence service:', err);
+    console.warn('[LocationIntelligence] Offline or static hosting detected, using client-side infrastructure master.');
     return null;
   }
 }

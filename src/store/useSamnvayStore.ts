@@ -436,6 +436,7 @@ function notify() {
     // ignore
   }
   listeners.forEach(fn => fn());
+  notifySubscribers();
 }
 
 export function useSamnvayStore() {
@@ -2217,4 +2218,25 @@ export function setSamnvayState(updater: Partial<SamnvayState> | ((prev: Samnvay
   }
   notify();
 }
+
+// Subscribe to store state changes (for Firebase and other real-time adapters)
+const stateSubscribers = new Set<(state: SamnvayState) => void>();
+
+export function subscribeSamnvayState(callback: (state: SamnvayState) => void) {
+  stateSubscribers.add(callback);
+  return () => {
+    stateSubscribers.delete(callback);
+  };
+}
+
+function notifySubscribers() {
+  stateSubscribers.forEach(cb => {
+    try {
+      cb(globalState);
+    } catch (e) {
+      console.error('State subscriber error:', e);
+    }
+  });
+}
+
 

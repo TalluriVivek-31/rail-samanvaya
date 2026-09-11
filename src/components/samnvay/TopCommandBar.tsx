@@ -1,20 +1,31 @@
 // Government-Grade Operational Header for Rail Samnvay Control Room
 // South Central Railway · Vijayawada Division · BZA Control
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSamnvayStore } from '../../store/useSamnvayStore';
+import { onFirebaseSyncStatus } from '../../services/firebaseSync';
 import { 
   Train, 
   Clock, 
   ShieldCheck, 
-  LogOut,
-  AlertCircle,
-  MessageSquare,
-  Compass
+  LogOut, 
+  AlertCircle, 
+  MessageSquare, 
+  Compass,
+  Database
 } from 'lucide-react';
 
 export const TopCommandBar: React.FC = () => {
   const { state, logout, toggleLiveMode, toggleChat } = useSamnvayStore();
+  const [firebaseStatus, setFirebaseStatus] = useState<'connected' | 'connecting' | 'permission_denied' | 'offline' | 'error'>('connecting');
+  const [firebaseDetail, setFirebaseDetail] = useState<string>('');
+
+  useEffect(() => {
+    onFirebaseSyncStatus((status, detail) => {
+      setFirebaseStatus(status);
+      if (detail) setFirebaseDetail(detail);
+    });
+  }, []);
 
   // Active conflicts count
   const activeConflictsCount = state.requests.filter(r => r.conflict && !r.conflict.isResolved).length + state.liveConflicts.length;
@@ -61,6 +72,33 @@ export const TopCommandBar: React.FC = () => {
             }`} />
             <span>{state.isLiveMode ? 'LIVE RAILRADAR' : 'DEMO MODE'}</span>
           </button>
+
+          {/* Firebase RTDB Cloud Sync Telemetry Pill */}
+          <div 
+            className={`hidden sm:flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold tracking-wider border shadow-2xs ${
+              firebaseStatus === 'connected'
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                : firebaseStatus === 'permission_denied'
+                ? 'bg-amber-50 border-amber-300 text-amber-800'
+                : 'bg-neutral-100 border-neutral-300 text-neutral-600'
+            }`}
+            title={
+              firebaseStatus === 'connected'
+                ? 'Firebase Realtime Database: Connected and Synchronized across devices.'
+                : firebaseStatus === 'permission_denied'
+                ? `Firebase RTDB Rules: ${firebaseDetail || 'Permission denied. Set .read and .write rules to true in Firebase Console.'}`
+                : 'Connecting to Firebase Realtime Database...'
+            }
+          >
+            <Database className={`w-3 h-3 ${firebaseStatus === 'connected' ? 'text-emerald-600' : 'text-amber-600'}`} />
+            <span>
+              {firebaseStatus === 'connected' 
+                ? 'CLOUD SYNC: ACTIVE' 
+                : firebaseStatus === 'permission_denied'
+                ? 'RTDB: RULES LOCKED'
+                : 'RTDB CONNECTING'}
+            </span>
+          </div>
 
           {/* Clock */}
           <div className="hidden lg:flex items-center space-x-2 bg-railway-canvas px-3 py-1 rounded-full border border-railway-border text-xs font-mono">

@@ -19,6 +19,7 @@ import { CreateRequestModal } from './components/samnvay/CreateRequestModal';
 import { SectionDetailDrawer } from './components/samnvay/SectionDetailDrawer';
 import { RailwayChatDrawer } from './components/samnvay/chat/RailwayChatDrawer';
 import { useSamnvayStore } from './store/useSamnvayStore';
+import { initFirebaseSync } from './services/firebaseSync';
 import { Train } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -26,6 +27,11 @@ export const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<SamnvayPage>('overview');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [inspectedSectionId, setInspectedSectionId] = useState<string | null>(null);
+
+  // Initialize Firebase Realtime Cloud Synchronization
+  useEffect(() => {
+    initFirebaseSync();
+  }, []);
 
   // Hash route interception and redirect for unauthenticated users
   useEffect(() => {

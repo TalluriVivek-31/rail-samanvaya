@@ -15,7 +15,8 @@ import {
   HelpCircle, 
   X, 
   PhoneCall, 
-  Radio
+  Radio,
+  CheckCircle
 } from 'lucide-react';
 import { useSamnvayStore } from '../../store/useSamnvayStore';
 
@@ -337,6 +338,78 @@ export const LoginPage: React.FC = () => {
               )}
             </button>
           </form>
+
+          {/* Quick Demo Access Quick-Fill Badges */}
+          <div className="pt-4 space-y-2">
+            <div className="text-[11px] font-semibold text-[#71717a] uppercase tracking-wider text-center">
+              Quick One-Click Demo Access (Auto-Login)
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIdentifier('EMP-IR-001');
+                  setPassword('RailSamnvay@2026');
+                  login('EMP-IR-001', 'RailSamnvay@2026');
+                }}
+                className="p-2.5 rounded-lg border border-[#e5e7eb] hover:border-[#2d9b88] hover:bg-[#2d9b88]/5 transition text-left cursor-pointer"
+              >
+                <div className="text-xs font-bold text-[#1a1a1a] flex items-center justify-between">
+                  <span>MASTER (PCOM)</span>
+                  <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-mono font-bold">ALL</span>
+                </div>
+                <div className="text-[10px] text-[#71717a] truncate font-mono">EMP-IR-001</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIdentifier('EMP-IR-104');
+                  setPassword('RailSamnvay@2026');
+                  login('EMP-IR-104', 'RailSamnvay@2026');
+                }}
+                className="p-2.5 rounded-lg border border-[#e5e7eb] hover:border-[#2d9b88] hover:bg-[#2d9b88]/5 transition text-left cursor-pointer"
+              >
+                <div className="text-xs font-bold text-[#1a1a1a] flex items-center justify-between">
+                  <span>Planning Officer</span>
+                  <span className="text-[9px] bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded font-mono font-bold">DOM</span>
+                </div>
+                <div className="text-[10px] text-[#71717a] truncate font-mono">EMP-IR-104</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIdentifier('EMP-IR-210');
+                  setPassword('RailSamnvay@2026');
+                  login('EMP-IR-210', 'RailSamnvay@2026');
+                }}
+                className="p-2.5 rounded-lg border border-[#e5e7eb] hover:border-[#2d9b88] hover:bg-[#2d9b88]/5 transition text-left cursor-pointer"
+              >
+                <div className="text-xs font-bold text-[#1a1a1a] flex items-center justify-between">
+                  <span>Section Control</span>
+                  <span className="text-[9px] bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded font-mono font-bold">COA</span>
+                </div>
+                <div className="text-[10px] text-[#71717a] truncate font-mono">EMP-IR-210</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIdentifier('EMP-IR-301');
+                  setPassword('RailSamnvay@2026');
+                  login('EMP-IR-301', 'RailSamnvay@2026');
+                }}
+                className="p-2.5 rounded-lg border border-[#e5e7eb] hover:border-[#2d9b88] hover:bg-[#2d9b88]/5 transition text-left cursor-pointer"
+              >
+                <div className="text-xs font-bold text-[#1a1a1a] flex items-center justify-between">
+                  <span>P.Way Engineer</span>
+                  <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-mono font-bold">FIELD</span>
+                </div>
+                <div className="text-[10px] text-[#71717a] truncate font-mono">EMP-IR-301</div>
+              </button>
+            </div>
+          </div>
 
           {/* --- Section 3: Support Footer --- */}
           <div className="pt-6 border-t border-[#e5e7eb] text-center space-y-2">

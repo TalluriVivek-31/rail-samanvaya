@@ -270,13 +270,12 @@ export async function getLiveTrainStatus(
     }
 
     try {
-      // Calculate today's date in Indian Standard Time (UTC + 5:30)
-      const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
-      const todayIST = istNow.toISOString().slice(0, 10);
-      const targetDate = date || todayIST;
+      // If an explicit date is requested, use it; otherwise, query the default active run directly
+      let url = date 
+        ? `https://api.railradar.in/v1/trains/${encodeURIComponent(trainNumber)}/live?date=${encodeURIComponent(date)}`
+        : `https://api.railradar.in/v1/trains/${encodeURIComponent(trainNumber)}/live`;
 
-      console.log(`[RailRadar] Upstream request started: GET /v1/trains/${trainNumber}/live?date=${targetDate}`);
-      let url = `https://api.railradar.in/v1/trains/${encodeURIComponent(trainNumber)}/live?date=${encodeURIComponent(targetDate)}`;
+      console.log(`[RailRadar] Upstream request started: GET ${url}`);
       
       let response = await fetchWithTimeout(
         url,
@@ -289,23 +288,6 @@ export async function getLiveTrainStatus(
         },
         API_TIMEOUT
       );
-
-      // If today's run has not started or not found, try without date parameter (upstream default active run)
-      if (!response.ok && !date) {
-        console.log(`[RailRadar] Query with date=${todayIST} returned HTTP ${response.status}. Retrying without date...`);
-        url = `https://api.railradar.in/v1/trains/${encodeURIComponent(trainNumber)}/live`;
-        response = await fetchWithTimeout(
-          url,
-          {
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'x-api-key': apiKey,
-              'Accept': 'application/json'
-            }
-          },
-          API_TIMEOUT
-        );
-      }
 
       if (!response.ok) {
         console.warn(`[RailRadar] Upstream error for train ${trainNumber}: HTTP ${response.status}`);
@@ -320,34 +302,7 @@ export async function getLiveTrainStatus(
       const json = await response.json();
       let normalized = normalizeTrainData(json, trainNumber);
 
-      // If requested for today without explicit date, but today's rake is "not-started" (e.g. departing late night),
-      // check if yesterday's rake is currently active on the route
-      if (!date && json.data?.status === 'not-started') {
-        try {
-          console.log(`[RailRadar] Today's instance for ${trainNumber} is not started yet. Checking active route instance...`);
-          const activeUrl = `https://api.railradar.in/v1/trains/${encodeURIComponent(trainNumber)}/live`;
-          const activeResp = await fetchWithTimeout(
-            activeUrl,
-            {
-              headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'x-api-key': apiKey,
-                'Accept': 'application/json'
-              }
-            },
-            API_TIMEOUT
-          );
-          if (activeResp.ok) {
-            const activeJson = await activeResp.json();
-            if (activeJson.data?.status === 'running') {
-              console.log(`[RailRadar] Active running instance found for ${trainNumber} (started ${activeJson.data.startDate})`);
-              normalized = normalizeTrainData(activeJson, trainNumber);
-            }
-          }
-        } catch (e) {
-          console.log('[RailRadar] Fallback check for active instance failed:', e);
-        }
-      }
+
 
       console.log(`[RailRadar] Upstream response received for ${trainNumber}: Delay = ${normalized.delayMinutes}m, Speed = ${normalized.speedKmph} km/h, KM = ${normalized.currentKm}, Updated = ${normalized.upstreamUpdatedAt}`);
 

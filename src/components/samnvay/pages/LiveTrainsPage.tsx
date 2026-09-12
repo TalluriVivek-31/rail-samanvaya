@@ -32,14 +32,14 @@ export const LiveTrainsPage: React.FC = () => {
     isLoading, 
     refetch, 
     error: corridorError 
-  } = useCorridorTrains(state.isLiveMode, true, 30_000);
+  } = useCorridorTrains(state.isLiveMode, true, 60_000);
   
-  // Station live board hook with 30s interval
+  // Station live board hook with 60s interval
   const { 
     entries: stationEntries, 
     isLoading: isStationLoading, 
     refetch: refetchStation 
-  } = useStationBoard(selectedStation, state.isLiveMode, true, 30_000);
+  } = useStationBoard(selectedStation, state.isLiveMode, true, 60_000);
 
   // Single train lookup tied to current live mode
   const { 
@@ -69,7 +69,7 @@ export const LiveTrainsPage: React.FC = () => {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      search(searchQuery.trim());
+      search(searchQuery.trim(), true);
     }
   };
 

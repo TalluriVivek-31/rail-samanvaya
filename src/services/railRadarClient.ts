@@ -228,31 +228,34 @@ export async function fetchLiveTrainStatus(
 
   try {
     const res = await fetch(`/api/railradar/train/${encodeURIComponent(trainNumber)}/live?${params.toString()}`);
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const json: ApiResponse<LiveTrainPosition> = await res.json();
-      if (res.ok && json.success && json.data) {
-        return {
-          source: json.source as DataSource,
-          data: json.data,
-          timestamp: json.timestamp || new Date().toISOString(),
-          upstreamUpdatedAt: json.upstreamUpdatedAt || json.data?.upstreamUpdatedAt,
-          cached: json.meta?.cached
-        };
-      } else {
-        return {
-          source: 'UNAVAILABLE',
-          data: null,
-          timestamp: json.timestamp || new Date().toISOString(),
-          error: json.error || `RailRadar API returned HTTP ${res.status}`
-        };
-      }
-    } else {
+    const text = await res.text();
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      // Body is not JSON (e.g. proxy 502/504 HTML error or upstream plain text)
       return {
         source: 'UNAVAILABLE',
         data: null,
         timestamp: new Date().toISOString(),
         error: `Server endpoint returned non-JSON (${res.status} ${res.statusText})`
+      };
+    }
+
+    if (res.ok && json.success && json.data) {
+      return {
+        source: json.source as DataSource,
+        data: json.data,
+        timestamp: json.timestamp || new Date().toISOString(),
+        upstreamUpdatedAt: json.upstreamUpdatedAt || json.data?.upstreamUpdatedAt,
+        cached: json.meta?.cached
+      };
+    } else {
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: json.timestamp || new Date().toISOString(),
+        error: json.error || `RailRadar API returned HTTP ${res.status}`
       };
     }
   } catch (err) {
@@ -313,37 +316,39 @@ export async function fetchLiveStationBoard(
 
   try {
     const res = await fetch(`/api/railradar/station/${encodeURIComponent(stationCode)}/live?${params.toString()}`);
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const json: ApiResponse<any> = await res.json();
-      if (res.ok && json.success && json.data) {
-        let entries: StationBoardEntry[] = [];
-        if (Array.isArray(json.data)) {
-          entries = json.data;
-        } else if (Array.isArray((json.data as any).trains)) {
-          entries = (json.data as any).trains;
-        }
-        return {
-          source: json.source as DataSource,
-          data: entries,
-          timestamp: json.timestamp || new Date().toISOString(),
-          upstreamUpdatedAt: json.upstreamUpdatedAt,
-          cached: json.meta?.cached
-        };
-      } else {
-        return {
-          source: 'UNAVAILABLE',
-          data: null,
-          timestamp: json.timestamp || new Date().toISOString(),
-          error: json.error || `RailRadar station board returned HTTP ${res.status}`
-        };
-      }
-    } else {
+    const text = await res.text();
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
       return {
         source: 'UNAVAILABLE',
         data: null,
         timestamp: new Date().toISOString(),
         error: `Server endpoint returned non-JSON (${res.status} ${res.statusText})`
+      };
+    }
+
+    if (res.ok && json.success && json.data) {
+      let entries: StationBoardEntry[] = [];
+      if (Array.isArray(json.data)) {
+        entries = json.data;
+      } else if (Array.isArray((json.data as any).trains)) {
+        entries = (json.data as any).trains;
+      }
+      return {
+        source: json.source as DataSource,
+        data: entries,
+        timestamp: json.timestamp || new Date().toISOString(),
+        upstreamUpdatedAt: json.upstreamUpdatedAt,
+        cached: json.meta?.cached
+      };
+    } else {
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: json.timestamp || new Date().toISOString(),
+        error: json.error || `RailRadar station board returned HTTP ${res.status}`
       };
     }
   } catch (err) {

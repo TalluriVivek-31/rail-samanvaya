@@ -10,7 +10,7 @@ import {
   invalidateServerCache 
 } from '../services/railRadarClient';
 
-export const EXACT_POLL_INTERVAL = 30_000; // 30 seconds
+export const EXACT_POLL_INTERVAL = 60_000; // 60 seconds (prevents hitting 10 req/min upstream tier across 6 corridor trains)
 
 /**
  * Poll all corridor trains at a regular 30-second interval.

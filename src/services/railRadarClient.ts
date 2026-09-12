@@ -1,6 +1,7 @@
-// Rail Samnvay — Universal RailRadar Client (Localhost + Vercel Static Hosting)
-// Connects to /api/railradar/* when backend server is present.
-// Automatically provides authentic South Central Railway telemetry if running on static Vercel.
+// Rail Samnvay — Universal RailRadar Client
+// Connects to /api/railradar/* via the backend Express proxy server.
+// In LIVE mode, the RailRadar API is the ONLY source. No silent fallback to demo data.
+// In DEMO mode, authentic high-density Indian Railways corridor telemetry is provided.
 
 import type { LiveTrainPosition, StationBoardEntry, DataSource } from '../types/samnvay';
 
@@ -177,7 +178,9 @@ const STATIC_STATION_BOARDS: Record<string, StationBoardEntry[]> = {
 };
 
 /**
- * Fetch live status for a single train with automatic client-side fallback
+ * Fetch live status for a single train via server proxy.
+ * In LIVE mode: RailRadar API via backend is the ONLY source. No silent fallback to demo data.
+ * In DEMO mode: Authentic Indian Railways corridor telemetry is served.
  */
 export async function fetchLiveTrainStatus(
   trainNumber: string,
@@ -190,60 +193,83 @@ export async function fetchLiveTrainStatus(
   error?: string;
   cached?: boolean;
 }> {
-  const { mode = 'demo', refresh = false, date } = options;
+  const { mode = 'live', refresh = false, date } = options;
+
+  if (mode === 'demo') {
+    const fallback = STATIC_DEMO_TRAINS[trainNumber] || {
+      trainNumber,
+      trainName: `Express Special (${trainNumber})`,
+      currentStation: 'BPP',
+      nextStation: 'CLX',
+      lastReportedStation: 'APL',
+      direction: 'UP' as const,
+      delayMinutes: 0,
+      scheduledArrival: '14:30',
+      expectedArrival: '14:30',
+      speedKmph: 110,
+      currentKm: 320.0,
+      status: 'RUNNING' as const,
+      lastUpdated: new Date().toISOString(),
+      upstreamUpdatedAt: new Date().toISOString()
+    };
+    return {
+      source: 'DEMO',
+      data: fallback,
+      timestamp: new Date().toISOString(),
+      upstreamUpdatedAt: new Date().toISOString()
+    };
+  }
+
+  // LIVE mode: Connect exclusively to Backend RailRadar Proxy Service
   const params = new URLSearchParams();
-  if (mode) params.set('mode', mode);
+  params.set('mode', 'live');
   if (refresh) params.set('refresh', 'true');
   if (date) params.set('date', date);
 
   try {
     const res = await fetch(`/api/railradar/train/${encodeURIComponent(trainNumber)}/live?${params.toString()}`);
-    
-    // Check if the response is valid JSON (avoid Vercel HTML error pages)
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const json: ApiResponse<LiveTrainPosition> = await res.json();
+      if (res.ok && json.success && json.data) {
+        return {
+          source: json.source as DataSource,
+          data: json.data,
+          timestamp: json.timestamp || new Date().toISOString(),
+          upstreamUpdatedAt: json.upstreamUpdatedAt || json.data?.upstreamUpdatedAt,
+          cached: json.meta?.cached
+        };
+      } else {
+        return {
+          source: 'UNAVAILABLE',
+          data: null,
+          timestamp: json.timestamp || new Date().toISOString(),
+          error: json.error || `RailRadar API returned HTTP ${res.status}`
+        };
+      }
+    } else {
       return {
-        source: json.source as DataSource,
-        data: json.success ? json.data : null,
-        timestamp: json.timestamp || new Date().toISOString(),
-        upstreamUpdatedAt: json.upstreamUpdatedAt || json.data?.upstreamUpdatedAt,
-        error: json.error,
-        cached: json.meta?.cached
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: new Date().toISOString(),
+        error: `Server endpoint returned non-JSON (${res.status} ${res.statusText})`
       };
     }
-  } catch {
-    // Network or server unreachable (e.g. static Vercel deployment)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Network error';
+    return {
+      source: 'UNAVAILABLE',
+      data: null,
+      timestamp: new Date().toISOString(),
+      error: `Failed to reach RailRadar backend service: ${msg}`
+    };
   }
-
-  // Fallback: Deliver authentic high-density Indian Railways corridor telemetry
-  const fallback = STATIC_DEMO_TRAINS[trainNumber] || {
-    trainNumber,
-    trainName: `Express Special (${trainNumber})`,
-    currentStation: 'BPP',
-    nextStation: 'CLX',
-    lastReportedStation: 'APL',
-    direction: 'UP' as const,
-    delayMinutes: 0,
-    scheduledArrival: '14:30',
-    expectedArrival: '14:30',
-    speedKmph: 110,
-    currentKm: 320.0,
-    status: 'RUNNING' as const,
-    lastUpdated: new Date().toISOString(),
-    upstreamUpdatedAt: new Date().toISOString()
-  };
-
-  return {
-    source: 'DEMO',
-    data: fallback,
-    timestamp: new Date().toISOString(),
-    upstreamUpdatedAt: new Date().toISOString(),
-  };
 }
 
 /**
- * Fetch live station board with automatic client-side fallback
+ * Fetch live station board via server proxy.
+ * In LIVE mode: RailRadar API via backend is the ONLY source. No silent fallback to demo data.
+ * In DEMO mode: Authentic Indian Railways station board is served.
  */
 export async function fetchLiveStationBoard(
   stationCode: string,
@@ -256,61 +282,79 @@ export async function fetchLiveStationBoard(
   error?: string;
   cached?: boolean;
 }> {
-  const { mode = 'demo', refresh = false } = options;
+  const { mode = 'live', refresh = false } = options;
+
+  if (mode === 'demo') {
+    const fallback = STATIC_STATION_BOARDS[stationCode.toUpperCase()] || [
+      {
+        trainNumber: '12627',
+        trainName: 'Karnataka Express',
+        type: 'ARRIVAL',
+        scheduledTime: '02:15',
+        expectedTime: '02:25',
+        delayMinutes: 10,
+        platform: 1,
+        status: 'DELAYED',
+        direction: 'UP'
+      }
+    ];
+    return {
+      source: 'DEMO',
+      data: fallback,
+      timestamp: new Date().toISOString(),
+      upstreamUpdatedAt: new Date().toISOString()
+    };
+  }
+
+  // LIVE mode: Connect exclusively to Backend RailRadar Proxy Service
   const params = new URLSearchParams();
-  if (mode) params.set('mode', mode);
+  params.set('mode', 'live');
   if (refresh) params.set('refresh', 'true');
 
   try {
     const res = await fetch(`/api/railradar/station/${encodeURIComponent(stationCode)}/live?${params.toString()}`);
     const contentType = res.headers.get('content-type') || '';
-    
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const json: ApiResponse<any> = await res.json();
-      let entries: StationBoardEntry[] | null = null;
-      if (json.success && json.data) {
+      if (res.ok && json.success && json.data) {
+        let entries: StationBoardEntry[] = [];
         if (Array.isArray(json.data)) {
           entries = json.data;
         } else if (Array.isArray((json.data as any).trains)) {
           entries = (json.data as any).trains;
-        } else {
-          entries = [];
         }
+        return {
+          source: json.source as DataSource,
+          data: entries,
+          timestamp: json.timestamp || new Date().toISOString(),
+          upstreamUpdatedAt: json.upstreamUpdatedAt,
+          cached: json.meta?.cached
+        };
+      } else {
+        return {
+          source: 'UNAVAILABLE',
+          data: null,
+          timestamp: json.timestamp || new Date().toISOString(),
+          error: json.error || `RailRadar station board returned HTTP ${res.status}`
+        };
       }
+    } else {
       return {
-        source: json.source as DataSource,
-        data: entries,
-        timestamp: json.timestamp || new Date().toISOString(),
-        upstreamUpdatedAt: json.upstreamUpdatedAt,
-        error: json.error,
-        cached: json.meta?.cached
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: new Date().toISOString(),
+        error: `Server endpoint returned non-JSON (${res.status} ${res.statusText})`
       };
     }
-  } catch {
-    // Network or server unreachable (e.g. static Vercel deployment)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Network error';
+    return {
+      source: 'UNAVAILABLE',
+      data: null,
+      timestamp: new Date().toISOString(),
+      error: `Failed to reach RailRadar backend service: ${msg}`
+    };
   }
-
-  // Fallback station board entries
-  const fallback = STATIC_STATION_BOARDS[stationCode.toUpperCase()] || [
-    {
-      trainNumber: '12627',
-      trainName: 'Karnataka Express',
-      type: 'ARRIVAL',
-      scheduledTime: '02:15',
-      expectedTime: '02:25',
-      delayMinutes: 10,
-      platform: 1,
-      status: 'DELAYED',
-      direction: 'UP'
-    }
-  ];
-
-  return {
-    source: 'DEMO',
-    data: fallback,
-    timestamp: new Date().toISOString(),
-    upstreamUpdatedAt: new Date().toISOString(),
-  };
 }
 
 /**
@@ -349,13 +393,13 @@ export async function fetchAllCorridorTrains(
   upstreamUpdatedAt?: string;
   errors: string[];
 }> {
+  const mode = options.mode || 'live';
   const results = await Promise.all(
-    CORRIDOR_TRAINS.map(num => fetchLiveTrainStatus(num, options))
+    CORRIDOR_TRAINS.map(num => fetchLiveTrainStatus(num, { ...options, mode }))
   );
 
   const trains: LiveTrainPosition[] = [];
   const errors: string[] = [];
-  let overallSource: DataSource = options.mode === 'live' ? 'LIVE' : 'DEMO';
   let latestUpstreamUpdate: string | undefined;
 
   let liveCount = 0;
@@ -373,16 +417,15 @@ export async function fetchAllCorridorTrains(
     if (r.error) errors.push(r.error);
   }
 
-  if (liveCount > 0) {
-    overallSource = 'LIVE';
-  } else if (demoCount > 0 || trains.length > 0) {
-    overallSource = 'DEMO';
+  let overallSource: DataSource;
+  if (mode === 'live') {
+    overallSource = liveCount > 0 ? 'LIVE' : 'UNAVAILABLE';
   } else {
-    overallSource = 'UNAVAILABLE';
+    overallSource = 'DEMO';
   }
 
   return {
-    trains,
+    trains: overallSource === 'UNAVAILABLE' ? [] : trains,
     source: overallSource,
     timestamp: new Date().toISOString(),
     upstreamUpdatedAt: latestUpstreamUpdate,

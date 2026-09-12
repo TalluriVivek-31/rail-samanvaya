@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getLiveTrainStatus, getLiveStationBoard, clearRailRadarCache } from '../services/railRadarService.js';
+import { getLiveTrainStatus, getLiveStationBoard, getLiveTrainRoute, clearRailRadarCache } from '../services/railRadarService.js';
 
 const router = Router();
 
@@ -89,6 +89,44 @@ router.get('/station/:code/live', async (req: Request, res: Response): Promise<v
     res.status(500).json({
       success: false,
       error: 'Internal server error processing live station board',
+      source: 'UNAVAILABLE',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// GET /api/railradar/train/:number/route
+router.get('/train/:number/route', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { number } = req.params;
+    const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
+
+    const result = await getLiveTrainRoute(number, { forceRefresh });
+    
+    if (result.source === 'UNAVAILABLE' || !result.data) {
+      res.status(result.source === 'UNAVAILABLE' ? 503 : 404).json({
+        success: false,
+        error: result.error || 'Train route telemetry unavailable',
+        source: result.source,
+        timestamp: result.timestamp,
+        upstreamUpdatedAt: result.upstreamUpdatedAt,
+        meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      data: result.data,
+      source: result.source,
+      timestamp: result.timestamp,
+      upstreamUpdatedAt: result.upstreamUpdatedAt,
+      meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error processing train route',
       source: 'UNAVAILABLE',
       timestamp: new Date().toISOString()
     });

@@ -214,11 +214,38 @@ export const LiveTrainsPage: React.FC = () => {
                 </span>
                 <span className="font-bold text-sm text-railway-textPrimary">{searchedTrain.trainName}</span>
                 <span className="text-xs font-mono text-railway-textSecondary">({searchedTrain.direction} Line)</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  LIVE TELEMETRY
+                </span>
+                {searchedTrain.startDate && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300">
+                    Originated: {searchedTrain.startDate}
+                  </span>
+                )}
               </div>
-              <div className="text-xs text-railway-textSecondary flex items-center gap-3">
-                <span>Location: <strong className="text-railway-textPrimary">KM {formatKm(searchedTrain.currentKm)}</strong></span>
+              <div className="text-xs text-railway-textSecondary flex flex-wrap items-center gap-3">
+                <span>
+                  Current: <strong className="text-railway-textPrimary">{searchedTrain.currentStationName || searchedTrain.currentStation} ({searchedTrain.currentStation})</strong>
+                </span>
                 <span>•</span>
-                <span>Next Station: <strong className="text-railway-textPrimary">{searchedTrain.nextStation}</strong></span>
+                <span>
+                  Distance from Origin: <strong className="text-railway-textPrimary">{formatKm(searchedTrain.distanceTravelledKm || searchedTrain.currentKm)} km</strong>
+                </span>
+                <span>•</span>
+                <span>
+                  Next Station: <strong className="text-railway-textPrimary">{searchedTrain.nextStationName || searchedTrain.nextStation} ({searchedTrain.nextStation})</strong>
+                </span>
+                {searchedTrain.nextHaltStation && (
+                  <>
+                    <span>•</span>
+                    <span>
+                      Next Halt: <strong className="text-railway-textPrimary">{searchedTrain.nextHaltName || searchedTrain.nextHaltStation} ({searchedTrain.nextHaltStation})</strong>
+                      {searchedTrain.nextHaltEta && searchedTrain.nextHaltEta !== '—' && (
+                        <span className="ml-1 text-railway-textSecondary font-mono">[{searchedTrain.nextHaltEta} IST]</span>
+                      )}
+                    </span>
+                  </>
+                )}
                 <span>•</span>
                 <span>Speed: <strong className="text-railway-textPrimary">{searchedTrain.speedKmph} km/h</strong></span>
               </div>
@@ -330,6 +357,9 @@ export const LiveTrainsPage: React.FC = () => {
                     <span className="flex items-center gap-1.5">
                       <Activity className="w-3.5 h-3.5 text-railway-forest" />
                       <span>{t.status || 'RUNNING'}</span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-railway-canvas text-railway-forest font-bold border border-railway-border">
+                        {state.isLiveMode ? 'RAILRADAR' : 'DEMO'}
+                      </span>
                     </span>
                     <span className="font-mono text-[11px] text-railway-textMuted">
                       {t.platform ? `PF-${t.platform}` : 'THROUGH'} · {t.upstreamUpdatedAt ? new Date(t.upstreamUpdatedAt).toLocaleTimeString() : 'Live'}

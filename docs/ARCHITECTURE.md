@@ -62,13 +62,18 @@
 
 ---
 
-## 3. Data Flow Architecture
+## 3. Operating Authority & Data Flow Architecture
 
-1. **Requisition Entry**: Department engineer inputs chainage and task specifications.
-2. **Location Resolution**: System calculates affected track length, cross-sections, and station boundaries.
+> [!IMPORTANT]
+> **Railway Operational Authority Notice:**  
+> **"Rail Samnvay models an Authorized Operating / Control Authority for operational validation and block authorization. The exact competent authority and workflow can vary by block type, division and applicable railway operating rules."**
+
+1. **Requisition Entry**: Department field engineer submits a maintenance requirement (never a pre-scheduled block).
+2. **Location Resolution**: System calculates affected track length, cross-sections, and station yard boundaries.
 3. **Priority Calculation**: 5 weighted scores produce overall priority index (0–100).
-4. **Approval Processing**: Officer validates necessity and safety preconditions (creator self-approval blocked).
-5. **Conflict & CPM Evaluation**: Analyzes candidate traffic windows against scheduled + delayed trains.
-6. **Authorization & Memo Generation**: Authorized Section Controller commits the block (`Scheduled`).
-7. **Execution**: Tracks live field handoffs and line normalization.
-8. **Audit Logging & Cloud Sync**: Persists all state changes to Firebase and local audit ledger.
+4. **Technical Verification**: Department review validates work isolation preconditions and machine readiness.
+5. **Planning Review & CP-SAT Optimization**: Planning Officer runs AI prioritization, CPM activity networks, and CP-SAT corridor optimizer to formulate a **Recommended Block Window** (`sendToControl`).
+6. **Operational Validation & Authorization**: Authorized Operating / Control Authority (`COA / Operations` - Chief Train Controller) reviews corridor train impact and commits the block (`Scheduled`), issuing the official Block Memo.
+   - *Prototype Superuser*: If `MASTER` executes an authorization override, the system logs `[Administrative Override]`.
+7. **Execution**: Section Controller grants possession (`Block Started`) and coordinates field handoffs through line clearance (`Block Released`).
+8. **Audit Logging & Cloud Sync**: Persists all state changes to Firebase Realtime Database and local non-repudiable audit ledger.

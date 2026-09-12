@@ -2,12 +2,16 @@
 
 ## 1. The Core Lifecycle Invariant
 
+> [!IMPORTANT]
+> **Railway Operational Authority Notice:**  
+> **"Rail Samnvay models an Authorized Operating / Control Authority for operational validation and block authorization. The exact competent authority and workflow can vary by block type, division and applicable railway operating rules."**
+
 ```text
-[ Maintenance Requirement ]  ──>  [ Department Verification ]  ──>  [ Planning Optimization ]  ──>  [ Authorized Block ]
-       (Field User)                      (Officer Review)                    (AI & CPM Engine)             (Controller Memo)
+[ Maintenance Requirement ]  ──>  [ Department Verification ]  ──>  [ Planning & CP-SAT Engine ]  ──>  [ Recommended Window ]  ──>  [ Operating Control Authorization ]
+       (Field Engineer)                  (Technical Review)                  (Planning Officer)                 (Submitted to Control)              (COA / Chief Controller)
 ```
 
-A **Maintenance Requirement** is NEVER born as a block. It represents requested engineering work. The system plans candidate windows, and an authorized human officer converts the recommendation into an official scheduled possession.
+A **Maintenance Requirement** is NEVER born as a block. It represents requested engineering work. The system evaluates constraints, the Planning Officer generates a Recommended Window, and the Authorized Operating / Control Authority validates and converts the recommendation into an official scheduled possession.
 
 ---
 
@@ -39,14 +43,15 @@ A **Maintenance Requirement** is NEVER born as a block. It represents requested 
   $$\text{Priority Score} = 0.35 \times \text{Crit} + 0.25 \times \text{Urg} + 0.20 \times \text{Risk} + 0.10 \times \text{Traffic} + 0.10 \times \text{Resources}$$
 - **Output**: Deterministic score between 0 and 100 with category tag (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`).
 
-### Step 4: Department Review & Approval
-- **Actor**: Divisional Operations Manager / Planning Officer (`Planning Officer`).
+### Step 4: Department Technical Verification & Planning Review
+- **Actor**: Senior Section Supervisors & Planning Officer (`Planning Officer` - M. K. Rao).
 - **Component**: `src/components/samnvay/pages/ApprovalQueuePage.tsx`
 - **Security Check**:
   - Creator cannot approve their own requisition (`isSameUser` check in `server/routes/requests.ts`).
   - Field engineers cannot approve or schedule blocks.
-- **Action**: Officer clicks **Approve**.
-- **Output**: Status updates from `Submitted` $\rightarrow$ **`Approved`** (approved for planning).
+  - Planning Officer reviews requisitions, verifies power/signal isolations, and coordinates joint requirements.
+- **Action**: Planning Officer verifies requirements and proceeds to corridor planning engine.
+- **Output**: Status updates to **`Verified`** or enters **`Planning Queue`**.
 
 ### Step 5: Train Movement & Conflict Evaluation
 - **Component**: `src/utils/conflictPlanner.ts` (`analyzeLocationTrainConflicts`)
@@ -71,15 +76,18 @@ A **Maintenance Requirement** is NEVER born as a block. It represents requested 
   - Critical Path Duration = 155 minutes.
   - Block Utilization % = (Critical Path / Available Window) $\times$ 100 $\le 100\%$.
 
-### Step 7: System Planning Recommendation
+### Step 7: Formulate Recommended Block Window (Planning Officer)
+- **Actor**: Planning Officer (`Planning Officer`).
 - **Component**: `src/components/samnvay/pages/AiPlanningPage.tsx`
-- **Output**: Status transitions to **`Block Window Allocated`** (Proposed bundle).
-- **Important**: Still NOT a scheduled line possession. No train is halted yet.
+- **Action**: Planning Officer clicks **GENERATE RECOMMENDATION & SEND TO CONTROL** (`sendToControl`).
+- **Output**: Status transitions to **`Block Window Allocated`** (Formulated Recommended Window).
+- **Important**: Still NOT a scheduled line possession. No train is halted yet. Planning Officers do not unilaterally grant or schedule corridor blocks.
 
-### Step 8: Human Officer Authorization & Scheduling
-- **Actor**: Section Controller (`COA / Operations` or `MASTER`).
-- **Action**: Officer clicks **Authorize & Schedule Block**.
-- **Output**: Official Block Memo assigned (`BLK-2026-0015`), status becomes **`Scheduled`**.
+### Step 8: Operational Validation & Block Authorization (Operating Control)
+- **Actor**: Chief Train Controller / Section Controller (`COA / Operations` - P. Murthy), the Authorized Operating / Control Authority.
+- **Action**: Controller reviews operational headway impacts, validates alternative windows, and clicks **AUTHORIZE & SCHEDULE BLOCK**.
+  - *Emergency/Admin Override*: If `MASTER` exercises administrative override, the action is stamped **`[Administrative Override]`**.
+- **Output**: Official Block Memo assigned (`MEMO-BZA-8421`), status becomes **`Scheduled`**.
 
 ### Step 9: Live 7-Stage Execution Tracking
 - **Component**: `src/components/samnvay/pages/ExecutionPage.tsx`

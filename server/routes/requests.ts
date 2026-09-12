@@ -70,33 +70,64 @@ router.post('/approve', (req: Request, res: Response): void => {
       if (['P.Way Engineer', 'S&T Engineer', 'TRD Engineer'].includes(sessionUser.role)) {
         res.status(403).json({
           success: false,
-          error: `Forbidden: Maintenance field role '${sessionUser.role}' cannot ${targetStatus === 'Scheduled' ? 'schedule/authorize' : 'approve'} blocks. Operating concurrence requires Planning Officer, Operations Controller, or MASTER authority.`,
+          error: `Forbidden: Maintenance field role '${sessionUser.role}' cannot ${targetStatus === 'Scheduled' ? 'schedule/authorize' : 'approve'} blocks. Requisitions require Technical Verification and Operating Control Authority authorization.`,
           code: 'INSUFFICIENT_PRIVILEGES'
         });
         return;
       }
     }
 
-    // Strict Rule 3: Only Operating Control can authorize Block Started (Grant) or Block Released
-    if (targetStatus === 'Block Started' || targetStatus === 'Block Released') {
-      if (['P.Way Engineer', 'S&T Engineer', 'TRD Engineer'].includes(sessionUser.role)) {
+    // Strict Rule 3: Operating Control Authority (COA / Operations) exclusively authorizes & schedules possessions
+    // Planning Officers generate recommendations and cannot unilaterally grant or schedule blocks
+    const isOperatingControl = sessionUser.role === 'COA / Operations';
+    const isMasterAdmin = sessionUser.role === 'MASTER';
+
+    if (targetStatus === 'Scheduled') {
+      if (sessionUser.role === 'Planning Officer') {
         res.status(403).json({
           success: false,
-          error: `Forbidden: Only Section Controller / Operating Control can execute '${targetStatus}'.`,
+          error: 'Forbidden: Planning Officer cannot authorize or schedule blocks. Under railway operating procedure, Planning Officers generate recommended windows; official Block Authorization & Scheduling is reserved for the Authorized Operating / Control Authority (COA / Operations).',
+          code: 'OPERATING_CONTROL_REQUIRED'
+        });
+        return;
+      }
+
+      if (!isOperatingControl && !isMasterAdmin) {
+        res.status(403).json({
+          success: false,
+          error: `Forbidden: Role '${sessionUser.role}' lacks Operating Control Authority to authorize and schedule corridor possessions.`,
+          code: 'INSUFFICIENT_OPERATING_AUTHORITY'
+        });
+        return;
+      }
+    }
+
+    // Strict Rule 4: Only Operating Control can execute Block Started (Grant) or Block Released
+    if (targetStatus === 'Block Started' || targetStatus === 'Block Released') {
+      if (!isOperatingControl && !isMasterAdmin) {
+        res.status(403).json({
+          success: false,
+          error: `Forbidden: Only Section Controller / Operating Control Authority (COA / Operations) can execute '${targetStatus}'.`,
           code: 'OPERATING_CONTROL_ONLY'
         });
         return;
       }
     }
 
+    const isOverride = isMasterAdmin && targetStatus === 'Scheduled';
+    const formattedRemarks = isOverride
+      ? `[Administrative Override] ${remarks || 'Authorized via MASTER Prototype System Administrator Override.'}`
+      : (remarks || 'Authorized via Central Railway Operating Control Authority.');
+
     res.json({
       success: true,
-      message: `Request ${requestId} transition to '${targetStatus}' authorized by ${sessionUser.name} (${sessionUser.role}).`,
+      message: `Request ${requestId} transition to '${targetStatus}' authorized by ${sessionUser.name} (${sessionUser.role})${isOverride ? ' [Administrative Override]' : ''}.`,
       requestId,
       targetStatus,
       authorizedBy: sessionUser.name,
       actorRole: sessionUser.role,
-      remarks: remarks || 'Authorized via Central Railway Control RBAC engine.',
+      isAdministrativeOverride: isOverride,
+      remarks: formattedRemarks,
       timestamp: new Date().toISOString()
     });
   } catch (error) {

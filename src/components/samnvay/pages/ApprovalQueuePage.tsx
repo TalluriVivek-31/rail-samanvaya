@@ -50,7 +50,9 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
     requestConcurrence,
     deleteMaintenanceBlock,
     openChat,
-    sendPlanningOfficeQuery
+    sendPlanningOfficeQuery,
+    sendToControl,
+    authorizeAndScheduleBlock
   } = useSamnvayStore();
 
   const isMaster = state.currentUser.role === 'MASTER';
@@ -138,41 +140,104 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
         </div>
       </div>
 
-      {/* Indian Railways Concurrence Lifecycle Progress Bar */}
-      <div className="bg-white border border-railway-border rounded-3xl p-6 sm:p-8 shadow-xs space-y-4">
+      {/* Indian Railways Concurrence & Authorization Lifecycle */}
+      <div className="bg-white border border-railway-border rounded-3xl p-6 sm:p-8 shadow-xs space-y-5">
         <div className="text-[10px] uppercase font-mono tracking-wider text-railway-textMuted font-bold flex items-center justify-between">
-          <span>INDIAN RAILWAYS BLOCK CONCURRENCE & PLANNING PROGRESSION</span>
-          <span className="text-railway-forest">G&SR CHAPTER XV STANDARD PIPELINE</span>
+          <span>INDIAN RAILWAYS BLOCK AUTHORITY & OPERATING PIPELINE</span>
+          <span className="text-railway-forest font-bold">G&SR CHAPTER XV STANDARD DISCIPLINE</span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-mono">
-          <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center space-x-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 text-xs font-mono">
+          <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col gap-1">
             <span className="w-5 h-5 rounded-full bg-railway-signalGreen text-white flex items-center justify-center font-bold text-[10px]">1</span>
-            <span className="font-bold">01 REQUISITION SUBMITTED</span>
+            <span className="font-bold text-[10px] leading-tight">SUBMITTED</span>
+            <span className="text-[9px] text-emerald-700 font-sans">Field Requisition</span>
           </div>
 
-          <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center space-x-2.5">
+          <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col gap-1">
             <span className="w-5 h-5 rounded-full bg-railway-signalGreen text-white flex items-center justify-center font-bold text-[10px]">2</span>
-            <span className="font-bold">02 TECHNICAL VERIFICATION</span>
+            <span className="font-bold text-[10px] leading-tight">DEPT VERIFIED</span>
+            <span className="text-[9px] text-emerald-700 font-sans">Tech & Isolation</span>
           </div>
 
-          <div className="p-3 rounded-2xl bg-white border border-railway-border text-railway-forest flex items-center space-x-2.5 font-bold shadow-xs">
-            <span className="w-5 h-5 rounded-full bg-railway-forest text-white flex items-center justify-center font-bold text-[10px]">3</span>
-            <span>03 DOM CONCURRENCE / APPROVAL</span>
+          <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col gap-1">
+            <span className="w-5 h-5 rounded-full bg-railway-signalGreen text-white flex items-center justify-center font-bold text-[10px]">3</span>
+            <span className="font-bold text-[10px] leading-tight">PLANNING REVIEW</span>
+            <span className="text-[9px] text-emerald-700 font-sans">Planning Officer</span>
           </div>
 
-          <div className="p-3 rounded-2xl bg-railway-canvas/60 border border-dashed border-railway-border text-railway-textMuted flex items-center space-x-2.5">
-            <span className="w-5 h-5 rounded-full bg-neutral-300 text-neutral-600 flex items-center justify-center font-bold text-[10px]">4</span>
-            <span>04 PLANNING & CORRIDOR LOCK</span>
+          <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col gap-1">
+            <span className="w-5 h-5 rounded-full bg-railway-signalGreen text-white flex items-center justify-center font-bold text-[10px]">4</span>
+            <span className="font-bold text-[10px] leading-tight">OPTIMIZATION</span>
+            <span className="text-[9px] text-emerald-700 font-sans">CP-SAT / CPM</span>
           </div>
+
+          <div className="p-2.5 rounded-2xl bg-sky-50 border border-sky-200 text-sky-900 flex flex-col gap-1">
+            <span className="w-5 h-5 rounded-full bg-sky-600 text-white flex items-center justify-center font-bold text-[10px]">5</span>
+            <span className="font-bold text-[10px] leading-tight">RECOMMENDED</span>
+            <span className="text-[9px] text-sky-700 font-sans">Sent to Control</span>
+          </div>
+
+          <div className="p-2.5 rounded-2xl bg-purple-50 border border-purple-200 text-purple-900 flex flex-col gap-1">
+            <span className="w-5 h-5 rounded-full bg-purple-700 text-white flex items-center justify-center font-bold text-[10px]">6</span>
+            <span className="font-bold text-[10px] leading-tight">CONTROL REVIEW</span>
+            <span className="text-[9px] text-purple-700 font-sans">COA / Operations</span>
+          </div>
+
+          <div className="p-2.5 rounded-2xl bg-purple-50 border border-purple-200 text-purple-900 flex flex-col gap-1">
+            <span className="w-5 h-5 rounded-full bg-purple-700 text-white flex items-center justify-center font-bold text-[10px]">7</span>
+            <span className="font-bold text-[10px] leading-tight">AUTHORIZED</span>
+            <span className="text-[9px] text-purple-700 font-sans">Operating Consent</span>
+          </div>
+
+          <div className="p-2.5 rounded-2xl bg-railway-canvas border border-railway-border text-railway-textSecondary flex flex-col gap-1">
+            <span className="w-5 h-5 rounded-full bg-neutral-300 text-neutral-700 flex items-center justify-center font-bold text-[10px]">8</span>
+            <span className="font-bold text-[10px] leading-tight">SCHEDULED</span>
+            <span className="text-[9px] text-neutral-500 font-sans">Official Block Memo</span>
+          </div>
+        </div>
+
+        {/* Mandatory Railway Authority Model Disclaimer */}
+        <div className="rounded-2xl bg-sky-50/80 border border-sky-200 p-3.5 text-xs text-sky-950 flex items-start gap-2.5">
+          <ShieldCheck className="w-4 h-4 text-sky-700 flex-shrink-0 mt-0.5" />
+          <p className="leading-relaxed">
+            <strong>Operating Authority Notice:</strong> Rail Samnvay models an Authorized Operating / Control Authority for operational validation and block authorization. The exact competent authority and workflow can vary by block type, division and applicable railway operating rules.
+          </p>
         </div>
       </div>
 
-      {/* Role Notice if viewing as maintenance engineer */}
+      {/* Dynamic Role Guidance Card */}
       {isEngineerRole && (
         <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 flex items-start gap-3 text-xs text-amber-900">
           <ShieldAlert className="w-4 h-4 text-railway-safetyAmber flex-shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            <strong>Operating Concurrence Notice:</strong> You are currently logged in as a maintenance engineer (<span className="font-semibold">{state.currentUser.role}</span>). Under Indian Railways operating regulations, formal approval must be endorsed by a <strong>Planning Officer</strong> or <strong>MASTER</strong>. Switch role in the top command bar to simulate operating concurrence authority.
+            <strong>Maintenance Requester View:</strong> You are logged in as a maintenance engineer (<span className="font-semibold">{state.currentUser.role}</span>). Under Indian Railways operating regulations, maintenance departments submit requirements. Operational validation and block authorization are executed exclusively by the Authorized Operating / Control Authority (<strong>COA / Operations</strong>) following Planning Officer recommendations.
+          </p>
+        </div>
+      )}
+
+      {state.currentUser.role === 'Planning Officer' && (
+        <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-4 flex items-start gap-3 text-xs text-emerald-950">
+          <Sparkles className="w-4 h-4 text-emerald-700 flex-shrink-0 mt-0.5" />
+          <p className="leading-relaxed">
+            <strong>Planning Desk Active:</strong> Logged in as <span className="font-semibold">Planning Officer ({state.currentUser.name})</span>. You evaluate requisitions, verify technical isolations, run AI prioritization & CP-SAT corridor bundling, and formulate <strong>Recommended Block Windows</strong> to submit to COA / Operations Control. Planning Officers do not unilaterally approve or grant blocks.
+          </p>
+        </div>
+      )}
+
+      {state.currentUser.role === 'COA / Operations' && (
+        <div className="rounded-2xl bg-purple-50 border border-purple-200 p-4 flex items-start gap-3 text-xs text-purple-950">
+          <ShieldCheck className="w-4 h-4 text-purple-700 flex-shrink-0 mt-0.5" />
+          <p className="leading-relaxed">
+            <strong>Authorized Operating / Control Authority Active:</strong> Logged in as <span className="font-semibold">COA / Operations ({state.currentUser.name}, Chief Train Controller)</span>. You hold operational authority to evaluate train headway impacts, review conflict graphs, authorize corridor blocks, and issue official Block Memos.
+          </p>
+        </div>
+      )}
+
+      {state.currentUser.role === 'MASTER' && (
+        <div className="rounded-2xl bg-neutral-100 border border-neutral-300 p-4 flex items-start gap-3 text-xs text-neutral-800">
+          <UserCheck className="w-4 h-4 text-neutral-700 flex-shrink-0 mt-0.5" />
+          <p className="leading-relaxed">
+            <strong>System Administrator / Prototype Superuser:</strong> Logged in as <span className="font-semibold">MASTER ({state.currentUser.name})</span>. Full system administrative access across all modules. Any direct operational authorization by MASTER will be permanently tagged with <span className="font-mono font-bold bg-neutral-200 px-1 rounded">[Administrative Override]</span> in the audit trail.
           </p>
         </div>
       )}
@@ -694,16 +759,67 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
                       </button>
                     )}
 
-                    {/* Approve Block Requisition (Disabled if self-creator or field engineer) */}
-                    <button
-                      type="button"
-                      disabled={isCreator || isEngineerRole}
-                      onClick={() => approveRequest(req.id, 'Concurred by Division Operating Control')}
-                      className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-full bg-railway-forest hover:bg-railway-forestDark text-white text-xs font-bold shadow-xs transition disabled:opacity-50 disabled:cursor-not-allowed active:scale-98"
-                    >
-                      <CheckCircle2 className="w-4 h-4 text-railway-signalGreenLight" />
-                      <span>Approve Block Requisition</span>
-                    </button>
+                    {/* Role-Specific Operating & Planning Actions */}
+                    {state.currentUser.role === 'Planning Officer' ? (
+                      <button
+                        type="button"
+                        disabled={isCreator}
+                        onClick={() => {
+                          sendToControl(req.id, `Recommended window formulated by Planning Officer ${state.currentUser.name}`);
+                          if (onNavigate) onNavigate('planning');
+                        }}
+                        className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-full bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-xs transition disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 cursor-pointer"
+                        title="Run AI optimization and submit recommended block window to COA / Operations Control"
+                      >
+                        <Sparkles className="w-4 h-4 text-emerald-200" />
+                        <span>GENERATE RECOMMENDATION & SEND TO CONTROL</span>
+                      </button>
+                    ) : state.currentUser.role === 'COA / Operations' ? (
+                      <div className="flex items-center space-x-2">
+                        {onNavigate && (
+                          <button
+                            type="button"
+                            onClick={() => onNavigate('planning')}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-purple-300 bg-purple-50 hover:bg-purple-100 text-purple-900 text-xs font-semibold shadow-2xs transition cursor-pointer"
+                          >
+                            <Search className="w-3.5 h-3.5 text-purple-700" />
+                            <span>REVIEW OPERATIONAL IMPACT</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          disabled={isCreator}
+                          onClick={() => authorizeAndScheduleBlock(req.id, `Possession officially authorized & scheduled by Operating Control Authority ${state.currentUser.name} (COA / Operations)`)}
+                          className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-full bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold shadow-xs transition disabled:opacity-50 disabled:cursor-not-allowed active:scale-98 cursor-pointer"
+                          title="Authorize corridor block and issue official Indian Railways Block Memo"
+                        >
+                          <CheckCircle2 className="w-4 h-4 text-purple-200" />
+                          <span>AUTHORIZE & SCHEDULE BLOCK</span>
+                        </button>
+                      </div>
+                    ) : state.currentUser.role === 'MASTER' ? (
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => authorizeAndScheduleBlock(req.id, 'Administrative Override by MASTER')}
+                          className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-full bg-neutral-800 hover:bg-black text-white text-xs font-bold shadow-xs transition active:scale-98 cursor-pointer"
+                          title="System Administrator emergency override: Authorize block and log administrative override"
+                        >
+                          <ShieldAlert className="w-4 h-4 text-amber-300" />
+                          <span>ADMINISTRATIVE OVERRIDE: AUTHORIZE BLOCK</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={true}
+                        className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-neutral-100 border border-neutral-300 text-neutral-500 text-xs font-semibold cursor-not-allowed"
+                        title="Field maintenance roles create requirements only; operating control authority required for authorization"
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5 text-neutral-400" />
+                        <span>REQUIRES OPERATING AUTHORITY</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 

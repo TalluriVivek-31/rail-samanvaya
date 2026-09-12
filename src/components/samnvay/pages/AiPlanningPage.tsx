@@ -35,6 +35,7 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
     rescheduleBlock, 
     splitBlock, 
     authorizeAndScheduleBlock, 
+    sendToControl,
     requestAutomaticPlanning,
     openBlockCommunication,
     deleteMaintenanceBlock
@@ -133,6 +134,14 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
             CP-SAT LINEAR PROGRAMMING
           </span>
         </div>
+      </div>
+
+      {/* Mandatory Railway Authority Model Disclaimer */}
+      <div className="rounded-2xl bg-sky-50/80 border border-sky-200 p-3.5 text-xs text-sky-950 flex items-start gap-2.5">
+        <CheckCircle2 className="w-4 h-4 text-sky-700 flex-shrink-0 mt-0.5" />
+        <p className="leading-relaxed">
+          <strong>Operating Authority Notice:</strong> Rail Samnvay models an Authorized Operating / Control Authority for operational validation and block authorization. The exact competent authority and workflow can vary by block type, division and applicable railway operating rules.
+        </p>
       </div>
 
       {/* 2. PARAMETERS & SOLVER CONTROL CARD */}
@@ -318,15 +327,42 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
                       <span>Block Communication</span>
                     </button>
 
-                    <button
-                      disabled={isEngineer}
-                      onClick={() => authorizeAndScheduleBlock(req.id, `Possession officially authorized and scheduled by ${state.currentUser.name} (${state.currentUser.role})`)}
-                      className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-emerald-700 hover:bg-emerald-800 disabled:bg-neutral-300 disabled:cursor-not-allowed text-white text-xs font-bold shadow-xs transition active:scale-98 cursor-pointer"
-                      title={isEngineer ? 'Field Engineers are restricted from authorizing possession under Indian Railways G&SR' : 'Authorize possession and issue Block Memo Number'}
-                    >
-                      <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                      <span>AUTHORIZE & SCHEDULE POSSESSION</span>
-                    </button>
+                    {state.currentUser.role === 'Planning Officer' ? (
+                      <button
+                        onClick={() => sendToControl(req.id, `Recommended corridor window formulated by Planning Officer ${state.currentUser.name}`)}
+                        className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-xs transition active:scale-98 cursor-pointer"
+                        title="Submit formulated recommendation to COA / Operations Control for operational validation"
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                        <span>SEND TO OPERATING CONTROL</span>
+                      </button>
+                    ) : state.currentUser.role === 'COA / Operations' ? (
+                      <button
+                        onClick={() => authorizeAndScheduleBlock(req.id, `Possession officially authorized and scheduled by Operating Control Authority ${state.currentUser.name} (COA / Operations)`)}
+                        className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold shadow-xs transition active:scale-98 cursor-pointer"
+                        title="Authorize possession and issue official Indian Railways Block Memo"
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-purple-200" />
+                        <span>AUTHORIZE & SCHEDULE POSSESSION</span>
+                      </button>
+                    ) : state.currentUser.role === 'MASTER' ? (
+                      <button
+                        onClick={() => authorizeAndScheduleBlock(req.id, 'Administrative Override by MASTER')}
+                        className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-neutral-800 hover:bg-black text-white text-xs font-bold shadow-xs transition active:scale-98 cursor-pointer"
+                        title="System Administrator emergency override: Authorize block and log administrative override"
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-amber-300" />
+                        <span>ADMINISTRATIVE OVERRIDE: AUTHORIZE</span>
+                      </button>
+                    ) : (
+                      <button
+                        disabled={true}
+                        className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-neutral-200 text-neutral-500 text-xs font-bold shadow-xs cursor-not-allowed"
+                        title="Field maintenance engineers create requirements; operating control authorization required"
+                      >
+                        <span>RECOMMENDATION PENDING CONTROL</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -597,14 +633,34 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
                 <div className="flex items-center space-x-3">
                   {/* Authorize possession if in Block Window Allocated state */}
                   {cardReq.status === 'Block Window Allocated' && (
-                    <button
-                      disabled={state.currentUser.role === 'P.Way Engineer' || state.currentUser.role === 'S&T Engineer' || state.currentUser.role === 'TRD Engineer'}
-                      onClick={() => authorizeAndScheduleBlock(cardReq.id, `Possession officially authorized and scheduled by ${state.currentUser.name} (${state.currentUser.role})`)}
-                      className="px-4 py-2 rounded-full bg-emerald-700 hover:bg-emerald-800 disabled:bg-neutral-300 disabled:cursor-not-allowed text-white font-bold text-xs transition shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-200" />
-                      <span>AUTHORIZE & SCHEDULE POSSESSION</span>
-                    </button>
+                    state.currentUser.role === 'COA / Operations' ? (
+                      <button
+                        onClick={() => authorizeAndScheduleBlock(cardReq.id, `Possession officially authorized and scheduled by Operating Control Authority ${state.currentUser.name} (COA / Operations)`)}
+                        className="px-4 py-2 rounded-full bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs transition shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                        title="Authorize corridor block and issue official Block Memo"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-purple-200" />
+                        <span>AUTHORIZE & SCHEDULE POSSESSION</span>
+                      </button>
+                    ) : state.currentUser.role === 'MASTER' ? (
+                      <button
+                        onClick={() => authorizeAndScheduleBlock(cardReq.id, 'Administrative Override by MASTER')}
+                        className="px-4 py-2 rounded-full bg-neutral-800 hover:bg-black text-white font-bold text-xs transition shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                        title="System Administrator emergency override"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-amber-300" />
+                        <span>ADMINISTRATIVE OVERRIDE: AUTHORIZE</span>
+                      </button>
+                    ) : state.currentUser.role === 'Planning Officer' ? (
+                      <span className="px-3.5 py-1.5 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-900 font-bold text-xs flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>RECOMMENDED WINDOW SUBMITTED TO CONTROL</span>
+                      </span>
+                    ) : (
+                      <span className="px-3.5 py-1.5 rounded-full bg-neutral-100 border border-neutral-300 text-neutral-600 font-medium text-xs flex items-center gap-1.5">
+                        <span>Awaiting Control Validation</span>
+                      </span>
+                    )
                   )}
 
                   {/* Reschedule Window Trigger */}

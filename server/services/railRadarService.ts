@@ -16,7 +16,7 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const inFlightRequests = new Map<string, Promise<ServiceResponse>>();
 
-const CACHE_TTL = 30 * 1000; // 30 seconds maximum
+const CACHE_TTL = 60 * 1000; // 60 seconds (prevents hitting 10 req/min rate limit across corridor trains)
 const API_TIMEOUT = 8 * 1000; // 8 seconds timeout
 
 async function fetchWithTimeout(url: string, options: RequestInit, timeout: number): Promise<Response> {
@@ -64,44 +64,102 @@ function normalizeTrainData(raw: any, trainNumber: string): any {
     ? t.delay
     : parseInt(t.delayMinutes || t.delay_in_minutes || t.delay, 10) || 0;
 
-  const speed = typeof t.speed_kmph === 'number'
+  // Find exact current and upcoming station from route sequence if present
+  const currSeq = t.currentLocation?.sequence;
+  const route = Array.isArray(t.route) ? t.route : [];
+  const currStop = currSeq !== undefined ? route.find((r: any) => r.sequence === currSeq) : null;
+  const nextStop = currSeq !== undefined ? route.find((r: any) => r.sequence === currSeq + 1) : null;
+  const nextHalt = currSeq !== undefined ? route.find((r: any) => r.isHalt && r.sequence > currSeq) : null;
+
+  // Extract speed: check speed_kmph, speedKmph, speedToNextStationKmph, or train avgSpeed
+  let speed = typeof t.speed_kmph === 'number'
     ? t.speed_kmph
     : typeof t.speedKmph === 'number'
     ? t.speedKmph
     : typeof t.speed === 'number'
     ? t.speed
+    : typeof currStop?.speedToNextStationKmph === 'number'
+    ? Math.round(currStop.speedToNextStationKmph)
+    : typeof nextStop?.speedToNextStationKmph === 'number'
+    ? Math.round(nextStop.speedToNextStationKmph)
     : typeof t.train?.avgSpeed === 'number'
     ? Math.round(t.train.avgSpeed)
-    : parseInt(t.speed, 10) || 0;
+    : 0;
 
-  const currentKm = typeof t.currentLocation?.distanceFromOriginKm === 'number'
+  const distanceTravelled = typeof t.currentLocation?.distanceFromOriginKm === 'number'
     ? t.currentLocation.distanceFromOriginKm
     : typeof t.current_km === 'number'
     ? t.current_km
     : typeof t.currentKm === 'number'
     ? t.currentKm
-    : parseFloat(t.current_km || t.currentKm) || 320;
+    : 0;
 
-  const currentStation = t.currentLocation?.stationCode || t.current_station || t.currentStation || 'BPP';
-  const nextStation = t.nextHalt?.stationCode || t.next_station || t.nextStation || 'CLX';
-  const lastReportedStation = t.previousHalt?.stationCode || t.last_reported_station || t.lastReportedStation || 'APL';
+  const currentStation = t.currentLocation?.stationCode || t.current_station || t.currentStation || (currStop?.stationCode) || '—';
+  const currentStationName = t.currentLocation?.stationName || (currStop?.stationName) || currentStation;
+
+  // Next immediate station (block section ahead)
+  const nextStation = (nextStop?.stationCode) || t.nextHalt?.stationCode || t.next_station || t.nextStation || '—';
+  const nextStationName = (nextStop?.stationName) || (nextHalt?.stationName) || nextStation;
+
+  // Next scheduled commercial halt
+  const nextHaltStation = (nextHalt?.stationCode) || t.nextHalt?.stationCode || nextStation;
+
+  const lastReportedStation = t.previousHalt?.stationCode || t.last_reported_station || t.lastReportedStation || currentStation;
 
   const upstreamUpdated = t.lastUpdatedAt || t.telemetry_updated_at || t.last_updated || t.lastUpdated || t.updated_at || new Date().toISOString();
 
+  // Extract scheduled and expected arrival time at next stop or halt
+  let schArrival = '—';
+  let expArrival = '—';
+
+  // Format ISO timestamp to HH:MM
+  const formatTime = (isoStr?: string) => {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      if (!isNaN(d.getTime())) {
+        return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      }
+    } catch {}
+    return '';
+  };
+
+  const targetNext = nextStop || nextHalt;
+  if (targetNext) {
+    schArrival = formatTime(targetNext.scheduledArrival) || formatTime(targetNext.scheduledDeparture) || '—';
+    expArrival = formatTime(targetNext.actualArrival) || formatTime(targetNext.actualDeparture) || schArrival;
+  } else if (t.scheduled_arrival || t.scheduledArrival) {
+    schArrival = String(t.scheduled_arrival || t.scheduledArrival);
+    expArrival = String(t.expected_arrival || t.expectedArrival || schArrival);
+  }
+
+  // Scheduled and expected arrival at commercial halt
+  let nextHaltEta = '—';
+  if (nextHalt) {
+    nextHaltEta = formatTime(nextHalt.actualArrival) || formatTime(nextHalt.scheduledArrival) || '—';
+  }
+
   return {
-    trainNumber: String(t.trainNumber || t.train_number || trainNumber),
+    trainNumber: String(t.trainNumber || t.train_number || t.train?.number || trainNumber),
     trainName: String(t.trainName || t.train_name || t.train?.name || 'Indian Railways Express'),
     currentStation: String(currentStation),
+    currentStationName: String(currentStationName),
     nextStation: String(nextStation),
+    nextStationName: String(nextStationName),
+    nextHaltStation: String(nextHaltStation),
+    nextHaltName: String(nextHalt?.stationName || t.nextHalt?.stationName || nextHaltStation),
+    nextHaltEta: String(nextHaltEta),
     lastReportedStation: String(lastReportedStation),
     direction: (t.direction === 'DN' ? 'DN' : 'UP') as 'UP' | 'DN',
     delayMinutes: delay,
-    scheduledArrival: String(t.scheduled_arrival || t.scheduledArrival || '14:30'),
-    expectedArrival: String(t.expected_arrival || t.expectedArrival || '14:42'),
-    currentKm,
+    scheduledArrival: schArrival,
+    expectedArrival: expArrival,
+    currentKm: distanceTravelled,
+    distanceTravelledKm: distanceTravelled,
     speedKmph: speed,
-    platform: t.platform ? Number(t.platform) : null,
-    status: t.status || 'RUNNING',
+    platform: (t.platform ? Number(t.platform) : null) || (targetNext?.platform ? Number(targetNext.platform) : null),
+    status: t.status || t.currentLocation?.status || 'RUNNING',
+    startDate: t.startDate || undefined,
     lastUpdated: new Date().toISOString(),
     upstreamUpdatedAt: upstreamUpdated,
     fetchedAt: new Date().toISOString()
@@ -212,11 +270,15 @@ export async function getLiveTrainStatus(
     }
 
     try {
-      console.log(`[RailRadar] Upstream request started: GET /v1/trains/${trainNumber}/live`);
-      const dateParam = date ? ('?date=' + encodeURIComponent(date)) : '';
-      const url = `https://api.railradar.in/v1/trains/${encodeURIComponent(trainNumber)}/live${dateParam}`;
+      // Calculate today's date in Indian Standard Time (UTC + 5:30)
+      const istNow = new Date(Date.now() + 5.5 * 3600 * 1000);
+      const todayIST = istNow.toISOString().slice(0, 10);
+      const targetDate = date || todayIST;
+
+      console.log(`[RailRadar] Upstream request started: GET /v1/trains/${trainNumber}/live?date=${targetDate}`);
+      let url = `https://api.railradar.in/v1/trains/${encodeURIComponent(trainNumber)}/live?date=${encodeURIComponent(targetDate)}`;
       
-      const response = await fetchWithTimeout(
+      let response = await fetchWithTimeout(
         url,
         {
           headers: {
@@ -227,6 +289,23 @@ export async function getLiveTrainStatus(
         },
         API_TIMEOUT
       );
+
+      // If today's run has not started or not found, try without date parameter (upstream default active run)
+      if (!response.ok && !date) {
+        console.log(`[RailRadar] Query with date=${todayIST} returned HTTP ${response.status}. Retrying without date...`);
+        url = `https://api.railradar.in/v1/trains/${encodeURIComponent(trainNumber)}/live`;
+        response = await fetchWithTimeout(
+          url,
+          {
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'x-api-key': apiKey,
+              'Accept': 'application/json'
+            }
+          },
+          API_TIMEOUT
+        );
+      }
 
       if (!response.ok) {
         console.warn(`[RailRadar] Upstream error for train ${trainNumber}: HTTP ${response.status}`);
@@ -239,7 +318,36 @@ export async function getLiveTrainStatus(
       }
 
       const json = await response.json();
-      const normalized = normalizeTrainData(json, trainNumber);
+      let normalized = normalizeTrainData(json, trainNumber);
+
+      // If requested for today without explicit date, but today's rake is "not-started" (e.g. departing late night),
+      // check if yesterday's rake is currently active on the route
+      if (!date && json.data?.status === 'not-started') {
+        try {
+          console.log(`[RailRadar] Today's instance for ${trainNumber} is not started yet. Checking active route instance...`);
+          const activeUrl = `https://api.railradar.in/v1/trains/${encodeURIComponent(trainNumber)}/live`;
+          const activeResp = await fetchWithTimeout(
+            activeUrl,
+            {
+              headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'x-api-key': apiKey,
+                'Accept': 'application/json'
+              }
+            },
+            API_TIMEOUT
+          );
+          if (activeResp.ok) {
+            const activeJson = await activeResp.json();
+            if (activeJson.data?.status === 'running') {
+              console.log(`[RailRadar] Active running instance found for ${trainNumber} (started ${activeJson.data.startDate})`);
+              normalized = normalizeTrainData(activeJson, trainNumber);
+            }
+          }
+        } catch (e) {
+          console.log('[RailRadar] Fallback check for active instance failed:', e);
+        }
+      }
 
       console.log(`[RailRadar] Upstream response received for ${trainNumber}: Delay = ${normalized.delayMinutes}m, Speed = ${normalized.speedKmph} km/h, KM = ${normalized.currentKm}, Updated = ${normalized.upstreamUpdatedAt}`);
 
@@ -364,6 +472,97 @@ export async function getLiveStationBoard(
       cache.set(cacheKey, {
         response: result,
         expiresAt: Date.now() + CACHE_TTL
+      });
+    }
+    return result;
+  } finally {
+    inFlightRequests.delete(cacheKey);
+  }
+}
+
+/**
+ * Retrieves train route with cache
+ */
+export async function getLiveTrainRoute(
+  trainNumber: string,
+  options: { forceRefresh?: boolean } = {}
+): Promise<ServiceResponse> {
+  const { forceRefresh = false } = options;
+  const cacheKey = `route:${trainNumber}`;
+
+  if (!forceRefresh) {
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { ...cached.response, cached: true, cacheExpiresAt: new Date(cached.expiresAt).toISOString() };
+    }
+  } else {
+    cache.delete(cacheKey);
+  }
+
+  if (inFlightRequests.has(cacheKey)) {
+    return inFlightRequests.get(cacheKey) as Promise<ServiceResponse>;
+  }
+
+  const promise = (async (): Promise<ServiceResponse> => {
+    const rawKey = process.env.RAILRADAR_API_KEY || '';
+    const apiKey = rawKey.trim().replace(/^Bearer\s+/i, '');
+
+    if (!apiKey) {
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: new Date().toISOString(),
+        error: 'RAILRADAR_API_KEY not configured on server. Add API key to .env'
+      };
+    }
+
+    try {
+      const response = await fetchWithTimeout(
+        `https://api.railradar.in/v1/trains/${encodeURIComponent(trainNumber)}/route`,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'x-api-key': apiKey,
+            'Accept': 'application/json'
+          }
+        },
+        API_TIMEOUT
+      );
+
+      if (!response.ok) {
+        return {
+          source: 'UNAVAILABLE',
+          data: null,
+          timestamp: new Date().toISOString(),
+          error: `Upstream RailRadar route returned HTTP ${response.status} ${response.statusText}`
+        };
+      }
+
+      const json = await response.json();
+      return {
+        source: 'LIVE',
+        data: json.data || json,
+        timestamp: new Date().toISOString(),
+        upstreamUpdatedAt: json.updated_at || new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : 'Network error'
+      };
+    }
+  })();
+
+  inFlightRequests.set(cacheKey, promise);
+
+  try {
+    const result = await promise;
+    if (result.source === 'LIVE' && result.data !== null) {
+      cache.set(cacheKey, {
+        response: result,
+        expiresAt: Date.now() + CACHE_TTL * 10 // Route data changes infrequently, 5m TTL
       });
     }
     return result;

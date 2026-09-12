@@ -642,31 +642,40 @@ export function useSamnvayStore() {
         return { success: false, message: 'Self-approval forbidden' };
       }
       if (currentRole === 'P.Way Engineer' || currentRole === 'S&T Engineer' || currentRole === 'TRD Engineer') {
-        setNotification('Access Denied: Maintenance field engineers cannot approve block requests. Approvals require Planning Officer or MASTER authority.', 'error');
+        setNotification('Access Denied: Maintenance field engineers cannot approve block requisitions.', 'error');
         return { success: false, message: 'Insufficient privileges' };
       }
     }
 
     if (targetStatus === 'Scheduled') {
+      if (currentRole === 'Planning Officer') {
+        setNotification('Access Denied: Planning Officers generate recommended windows. Official Block Authorization & Scheduling is reserved for the Authorized Operating / Control Authority (COA / Operations).', 'error');
+        return { success: false, message: 'Operating Control authority required' };
+      }
       if (currentRole === 'P.Way Engineer' || currentRole === 'S&T Engineer' || currentRole === 'TRD Engineer') {
-        setNotification('Access Denied: Maintenance field engineers cannot authorize and schedule possessions. Requires Planning Officer or MASTER authority.', 'error');
+        setNotification('Access Denied: Maintenance field engineers cannot authorize and schedule possessions.', 'error');
         return { success: false, message: 'Insufficient privileges' };
       }
     }
 
     if (targetStatus === 'Block Started' || targetStatus === 'Block Released') {
-      if (currentRole === 'P.Way Engineer' || currentRole === 'S&T Engineer' || currentRole === 'TRD Engineer') {
-        setNotification(`Access Denied: Only Operating Control (COA / Station Master) can grant or release block possession (${targetStatus}).`, 'error');
+      if (currentRole !== 'COA / Operations' && currentRole !== 'MASTER') {
+        setNotification(`Access Denied: Only Section Controller / Operating Control Authority (COA / Operations) can grant or release block possession (${targetStatus}).`, 'error');
         return { success: false, message: 'Operating control only' };
       }
     }
+
+    const isOverride = currentRole === 'MASTER' && (targetStatus === 'Scheduled' || targetStatus === 'Block Started' || targetStatus === 'Block Released');
+    const finalRemarks = isOverride 
+      ? `[Administrative Override] ${remarks || `Transitioned to ${targetStatus} via MASTER Prototype System Administrator Override`}`
+      : (remarks || `Transitioned to ${targetStatus}`);
 
     const newHistoryEntry: StatusHistoryEntry = {
       status: targetStatus,
       timestamp: timeNow,
       actor: currentActor,
       role: currentRole,
-      remarks: remarks || `Transitioned to ${targetStatus}`
+      remarks: finalRemarks
     };
 
     const existingHistory = req.statusHistory || [];
@@ -1787,7 +1796,62 @@ export function useSamnvayStore() {
     );
   }, [logAudit, setNotification]);
 
-  // EXPLICIT HUMAN AUTHORIZATION GATE: AUTHORIZE & SCHEDULE POSSESSION (Prompt Section 7 & 8)
+  // EXPLICIT PLANNING OFFICER ACTION: SUBMIT RECOMMENDED WINDOW TO OPERATING CONTROL
+  const sendToControl = useCallback((requestId: string, recommendationNotes?: string) => {
+    const req = globalState.requests.find(r => r.id === requestId);
+    if (!req) {
+      setNotification(`Error: Requisition ${requestId} not found.`, 'error');
+      return { success: false, message: 'Request not found' };
+    }
+
+    const currentRole = globalState.currentUser.role;
+    const currentActor = globalState.currentUser.name;
+
+    if (currentRole === 'P.Way Engineer' || currentRole === 'S&T Engineer' || currentRole === 'TRD Engineer') {
+      setNotification('Access Denied: Maintenance field engineers cannot submit recommendations to Control.', 'error');
+      return { success: false, message: 'Insufficient privileges' };
+    }
+
+    const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) + ' IST';
+    const recNotes = recommendationNotes?.trim() || `Recommended Block Window (${req.allocatedWindow ? `${req.allocatedWindow.startTime}–${req.allocatedWindow.endTime}` : req.preferredTime || '04:30–06:30'}) formulated via CP-SAT / CPM and submitted to COA / Operations Control for operational validation.`;
+
+    const newHistoryEntry: StatusHistoryEntry = {
+      status: 'Block Window Allocated',
+      timestamp: timeNow,
+      actor: currentActor,
+      role: currentRole,
+      remarks: recNotes
+    };
+
+    const updatedRequests = globalState.requests.map(r => {
+      if (r.id === requestId) {
+        return {
+          ...r,
+          status: 'Block Window Allocated' as BlockStatus,
+          statusHistory: [...(r.statusHistory || []), newHistoryEntry]
+        };
+      }
+      return r;
+    });
+
+    globalState = {
+      ...globalState,
+      requests: updatedRequests
+    };
+
+    logAudit(
+      'Recommended Window Submitted to Control',
+      requestId,
+      'Block Window Allocated',
+      recNotes
+    );
+
+    notify();
+    setNotification(`Requisition ${requestId} recommended window submitted to COA / Operations Control for operational validation.`, 'success');
+    return { success: true };
+  }, [logAudit, setNotification]);
+
+  // EXPLICIT HUMAN AUTHORIZATION GATE: AUTHORIZE & SCHEDULE POSSESSION (Operating Control Authority)
   const authorizeAndScheduleBlock = useCallback((requestId: string, justification?: string) => {
     const req = globalState.requests.find(r => r.id === requestId);
     if (!req) {
@@ -1798,12 +1862,21 @@ export function useSamnvayStore() {
     const currentRole = globalState.currentUser.role;
     const currentActor = globalState.currentUser.name;
 
-    // Strict G&SR RBAC Enforcement: Field Engineers are forbidden from scheduling
+    // Strict G&SR RBAC Enforcement:
+    // Planning Officers generate recommendations and cannot grant possessions or schedule blocks
+    if (currentRole === 'Planning Officer') {
+      setNotification('Access Denied: Planning Officers generate recommended windows. Official Block Authorization & Scheduling is reserved for the Authorized Operating / Control Authority (COA / Operations).', 'error');
+      return { success: false, message: 'Operating Control authority required' };
+    }
+
+    // Field Engineers are maintenance requesters and forbidden from scheduling
     if (currentRole === 'P.Way Engineer' || currentRole === 'S&T Engineer' || currentRole === 'TRD Engineer') {
-      setNotification('Access Denied: Maintenance field engineers cannot authorize and schedule possessions. Requires Planning Officer or MASTER authority.', 'error');
+      setNotification('Access Denied: Maintenance field engineers cannot authorize and schedule possessions.', 'error');
       return { success: false, message: 'Insufficient privileges' };
     }
 
+    const isMasterAdmin = currentRole === 'MASTER';
+    const isOverride = isMasterAdmin;
     const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) + ' IST';
     const memoNum = req.blockMemoNumber || `MEMO-BZA-${Math.floor(1000 + Math.random() * 9000)}`;
     const effectiveWindow = req.allocatedWindow || {
@@ -1818,7 +1891,9 @@ export function useSamnvayStore() {
       timestamp: timeNow,
       actor: currentActor,
       role: currentRole,
-      remarks: justification || `Authorized & Scheduled Possession by ${currentActor} (${currentRole}). Block Memo #${memoNum} issued.`
+      remarks: isOverride
+        ? `[Administrative Override] Possession authorized by System Administrator ${currentActor} (MASTER). Block Memo #${memoNum} issued.`
+        : (justification || `Authorized & Scheduled by Operating Control Authority ${currentActor} (COA / Operations). Block Memo #${memoNum} issued.`)
     };
 
     // Update block plan status if associated
@@ -1842,7 +1917,9 @@ export function useSamnvayStore() {
       allocatedEndTime: effectiveWindow.endTime,
       safetyBufferMinutes: 15,
       blockMemoNumber: memoNum,
-      authorizedBy: `${currentActor} (${currentRole})`,
+      authorizedBy: isOverride 
+        ? `${currentActor} (${currentRole}) [Administrative Override]`
+        : `${currentActor} (${currentRole})`,
       authorizedAt: timeNow,
       status: 'Scheduled',
       safetyChecklist: {
@@ -1877,14 +1954,21 @@ export function useSamnvayStore() {
     };
 
     logAudit(
-      'Authorized & Scheduled Possession',
+      isOverride ? 'Administrative Override: Scheduled Possession' : 'Operating Control Block Authorization',
       requestId,
       'Scheduled',
-      `Possession officially authorized by ${currentActor} (${currentRole}) for window ${effectiveWindow.startTime}–${effectiveWindow.endTime}. Memo #${memoNum}.`
+      isOverride
+        ? `[Administrative Override] Possession authorized by System Administrator ${currentActor} (MASTER) for window ${effectiveWindow.startTime}–${effectiveWindow.endTime}. Memo #${memoNum}.`
+        : `Possession officially authorized by Operating Control Authority ${currentActor} (${currentRole}) for window ${effectiveWindow.startTime}–${effectiveWindow.endTime}. Memo #${memoNum}.`
     );
 
     notify();
-    setNotification(`Possession ${requestId} successfully AUTHORIZED & SCHEDULED under Memo #${memoNum}!`, 'success');
+    setNotification(
+      isOverride
+        ? `[Administrative Override] Possession ${requestId} SCHEDULED by MASTER under Memo #${memoNum}.`
+        : `Possession ${requestId} successfully AUTHORIZED & SCHEDULED by Operating Control under Memo #${memoNum}!`,
+      'success'
+    );
     return { success: true, memoNumber: memoNum };
   }, [logAudit, setNotification]);
 
@@ -2193,6 +2277,7 @@ export function useSamnvayStore() {
     acceptConflictRecommendation,
     advanceExecutionStep,
     runAiPlanner,
+    sendToControl,
     authorizeAndScheduleBlock,
     requestAutomaticPlanning,
     resetToInitial,

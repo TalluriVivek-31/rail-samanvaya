@@ -267,12 +267,20 @@ export interface LiveTrainPosition {
   scheduledArrival: string;
   expectedArrival: string;
   currentKm: number;
+  distanceTravelledKm?: number;
   speedKmph: number;
-  platform?: number;
-  status: 'RUNNING' | 'AT_PLATFORM' | 'DEPARTED' | 'CANCELLED' | 'DIVERTED';
+  platform?: number | null;
+  status: 'RUNNING' | 'AT_PLATFORM' | 'DEPARTED' | 'CANCELLED' | 'DIVERTED' | 'NOT_STARTED' | 'SCHEDULED' | string;
+  startDate?: string;
+  scheduledDeparture?: string;
   lastUpdated: string;
   upstreamUpdatedAt?: string;
   fetchedAt?: string;
+  nextHaltStation?: string;
+  nextHaltName?: string;
+  nextHaltEta?: string;
+  nextStationName?: string;
+  currentStationName?: string;
 }
 
 export interface StationBoardEntry {

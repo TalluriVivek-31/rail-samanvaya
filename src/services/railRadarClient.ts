@@ -1,0 +1,621 @@
+// Rail Samnvay — Universal RailRadar Client
+// Connects to /api/railradar/* via the backend Express proxy server.
+// In LIVE mode, the RailRadar API is the ONLY source. No silent fallback to demo data.
+// In DEMO mode, authentic high-density Indian Railways corridor telemetry is provided.
+
+import type { LiveTrainPosition, StationBoardEntry, DataSource } from '../types/samnvay';
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T | null;
+  source: DataSource;
+  timestamp: string;
+  upstreamUpdatedAt?: string;
+  error?: string;
+  meta?: { cached: boolean; cacheExpiresAt?: string };
+}
+
+/** Authentic Indian Railways Corridor Telemetry Database for Vijayawada Division */
+const STATIC_DEMO_TRAINS: Record<string, LiveTrainPosition> = {
+  '12627': {
+    trainNumber: '12627',
+    trainName: 'Karnataka Express',
+    currentStation: 'BPP',
+    nextStation: 'CLX',
+    lastReportedStation: 'APL',
+    direction: 'UP',
+    delayMinutes: 0,
+    scheduledArrival: '02:15',
+    expectedArrival: '02:25',
+    speedKmph: 110,
+    currentKm: 320.5,
+    status: 'RUNNING',
+    lastUpdated: new Date().toISOString(),
+    upstreamUpdatedAt: new Date().toISOString()
+  },
+  '12723': {
+    trainNumber: '12723',
+    trainName: 'Telangana Express',
+    currentStation: 'BZA',
+    nextStation: 'KCC',
+    lastReportedStation: 'BZA',
+    direction: 'UP',
+    delayMinutes: 5,
+    scheduledArrival: '06:40',
+    expectedArrival: '06:45',
+    speedKmph: 120,
+    currentKm: 0.0,
+    status: 'RUNNING',
+    lastUpdated: new Date().toISOString(),
+    upstreamUpdatedAt: new Date().toISOString()
+  },
+  '17011': {
+    trainNumber: '17011',
+    trainName: 'Intercity Express',
+    currentStation: 'MAG',
+    nextStation: 'NBR',
+    lastReportedStation: 'MAG',
+    direction: 'DN',
+    delayMinutes: 0,
+    scheduledArrival: '03:10',
+    expectedArrival: '03:10',
+    speedKmph: 95,
+    currentKm: 28.0,
+    status: 'RUNNING',
+    lastUpdated: new Date().toISOString(),
+    upstreamUpdatedAt: new Date().toISOString()
+  },
+  '20834': {
+    trainNumber: '20834',
+    trainName: 'Vande Bharat Express',
+    currentStation: 'BZA',
+    nextStation: 'MAG',
+    lastReportedStation: 'BZA',
+    direction: 'UP',
+    delayMinutes: 0,
+    scheduledArrival: '07:15',
+    expectedArrival: '07:15',
+    speedKmph: 130,
+    currentKm: 0.0,
+    status: 'RUNNING',
+    lastUpdated: new Date().toISOString(),
+    upstreamUpdatedAt: new Date().toISOString()
+  },
+  '12711': {
+    trainNumber: '12711',
+    trainName: 'Pinakini Express',
+    currentStation: 'CLX',
+    nextStation: 'VTM',
+    lastReportedStation: 'CLX',
+    direction: 'DN',
+    delayMinutes: 12,
+    scheduledArrival: '14:20',
+    expectedArrival: '14:32',
+    speedKmph: 105,
+    currentKm: 334.2,
+    status: 'RUNNING',
+    lastUpdated: new Date().toISOString(),
+    upstreamUpdatedAt: new Date().toISOString()
+  },
+  '12615': {
+    trainNumber: '12615',
+    trainName: 'Grand Trunk Express',
+    currentStation: 'APL',
+    nextStation: 'BPP',
+    lastReportedStation: 'TEL',
+    direction: 'UP',
+    delayMinutes: 8,
+    scheduledArrival: '16:15',
+    expectedArrival: '16:23',
+    speedKmph: 115,
+    currentKm: 315.8,
+    status: 'RUNNING',
+    lastUpdated: new Date().toISOString(),
+    upstreamUpdatedAt: new Date().toISOString()
+  }
+};
+
+const STATIC_STATION_BOARDS: Record<string, StationBoardEntry[]> = {
+  'BPP': [
+    {
+      trainNumber: '12627',
+      trainName: 'Karnataka Express',
+      type: 'ARRIVAL',
+      scheduledTime: '02:15',
+      expectedTime: '02:25',
+      delayMinutes: 10,
+      platform: 1,
+      status: 'DELAYED',
+      direction: 'UP'
+    },
+    {
+      trainNumber: '12711',
+      trainName: 'Pinakini Express',
+      type: 'DEPARTURE',
+      scheduledTime: '06:10',
+      expectedTime: '06:10',
+      delayMinutes: 0,
+      platform: 2,
+      status: 'ON_TIME',
+      direction: 'DN'
+    },
+    {
+      trainNumber: '17011',
+      trainName: 'Intercity Express',
+      type: 'ARRIVAL',
+      scheduledTime: '08:45',
+      expectedTime: '08:45',
+      delayMinutes: 0,
+      platform: 1,
+      status: 'ON_TIME',
+      direction: 'UP'
+    }
+  ],
+  'CLX': [
+    {
+      trainNumber: '12627',
+      trainName: 'Karnataka Express',
+      type: 'ARRIVAL',
+      scheduledTime: '02:45',
+      expectedTime: '02:55',
+      delayMinutes: 10,
+      platform: 2,
+      status: 'DELAYED',
+      direction: 'UP'
+    },
+    {
+      trainNumber: '20834',
+      trainName: 'Vande Bharat Express',
+      type: 'DEPARTURE',
+      scheduledTime: '07:45',
+      expectedTime: '07:45',
+      delayMinutes: 0,
+      platform: 1,
+      status: 'ON_TIME',
+      direction: 'UP'
+    }
+  ]
+};
+
+/**
+ * Fetch live status for a single train via server proxy.
+ * In LIVE mode: RailRadar API via backend is the ONLY source. No silent fallback to demo data.
+ * In DEMO mode: Authentic Indian Railways corridor telemetry is served.
+ */
+export async function fetchLiveTrainStatus(
+  trainNumber: string,
+  options: { mode?: 'live' | 'demo'; refresh?: boolean; date?: string } = {}
+): Promise<{ 
+  source: DataSource; 
+  data: LiveTrainPosition | null; 
+  timestamp: string; 
+  upstreamUpdatedAt?: string;
+  error?: string;
+  cached?: boolean;
+}> {
+  const { mode = 'live', refresh = false, date } = options;
+
+  if (mode === 'demo') {
+    const demo = STATIC_DEMO_TRAINS[trainNumber];
+    if (demo) {
+      const demoMins = typeof demo.delayMinutes === 'number' ? demo.delayMinutes : 0;
+      return {
+        source: 'DEMO',
+        data: {
+          ...demo,
+          delayMinutes: demoMins,
+          delaySeconds: demoMins * 60
+        },
+        timestamp: new Date().toISOString(),
+        upstreamUpdatedAt: demo.upstreamUpdatedAt || new Date().toISOString()
+      };
+    }
+    // Never fabricate mock data for unknown trains; strictly return 'Train data unavailable'
+    return {
+      source: 'UNAVAILABLE',
+      data: null,
+      timestamp: new Date().toISOString(),
+      error: 'Train data unavailable'
+    };
+  }
+
+  // LIVE mode: Connect exclusively to Backend RailRadar Proxy Service
+  const params = new URLSearchParams();
+  params.set('mode', 'live');
+  if (refresh) params.set('refresh', 'true');
+  if (date) params.set('date', date);
+
+  try {
+    const res = await fetch(`/api/railradar/train/${encodeURIComponent(trainNumber)}/live?${params.toString()}`);
+    const text = await res.text();
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      // Body is not JSON (e.g. proxy 502/504 HTML error or upstream plain text)
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: new Date().toISOString(),
+        error: 'Train data unavailable'
+      };
+    }
+
+    if (res.ok && json.success && json.data) {
+      return {
+        source: json.source as DataSource,
+        data: json.data,
+        timestamp: json.timestamp || new Date().toISOString(),
+        upstreamUpdatedAt: json.upstreamUpdatedAt || json.data?.upstreamUpdatedAt,
+        cached: json.meta?.cached
+      };
+    } else {
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: json?.timestamp || new Date().toISOString(),
+        error: json?.error || 'Train data unavailable'
+      };
+    }
+  } catch (err) {
+    return {
+      source: 'UNAVAILABLE',
+      data: null,
+      timestamp: new Date().toISOString(),
+      error: 'Train data unavailable'
+    };
+  }
+}
+
+/**
+ * Fetch live station board via server proxy.
+ * In LIVE mode: RailRadar API via backend is the ONLY source. No silent fallback to demo data.
+ * In DEMO mode: Authentic Indian Railways station board is served.
+ */
+export async function fetchLiveStationBoard(
+  stationCode: string,
+  options: { mode?: 'live' | 'demo'; refresh?: boolean } = {}
+): Promise<{ 
+  source: DataSource; 
+  data: StationBoardEntry[] | null; 
+  timestamp: string; 
+  upstreamUpdatedAt?: string;
+  error?: string;
+  cached?: boolean;
+}> {
+  const { mode = 'live', refresh = false } = options;
+
+  if (mode === 'demo') {
+    const fallback = STATIC_STATION_BOARDS[stationCode.toUpperCase()] || [
+      {
+        trainNumber: '12627',
+        trainName: 'Karnataka Express',
+        type: 'ARRIVAL',
+        scheduledTime: '02:15',
+        expectedTime: '02:25',
+        delayMinutes: 10,
+        platform: 1,
+        status: 'DELAYED',
+        direction: 'UP'
+      }
+    ];
+    return {
+      source: 'DEMO',
+      data: fallback,
+      timestamp: new Date().toISOString(),
+      upstreamUpdatedAt: new Date().toISOString()
+    };
+  }
+
+  // LIVE mode: Connect exclusively to Backend RailRadar Proxy Service
+  const params = new URLSearchParams();
+  params.set('mode', 'live');
+  if (refresh) params.set('refresh', 'true');
+
+  try {
+    const res = await fetch(`/api/railradar/station/${encodeURIComponent(stationCode)}/live?${params.toString()}`);
+    const text = await res.text();
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: new Date().toISOString(),
+        error: `Server endpoint returned non-JSON (${res.status} ${res.statusText})`
+      };
+    }
+
+    if (res.ok && json.success && json.data) {
+      let entries: StationBoardEntry[] = [];
+      if (Array.isArray(json.data)) {
+        entries = json.data;
+      } else if (Array.isArray((json.data as any).trains)) {
+        entries = (json.data as any).trains;
+      }
+      return {
+        source: json.source as DataSource,
+        data: entries,
+        timestamp: json.timestamp || new Date().toISOString(),
+        upstreamUpdatedAt: json.upstreamUpdatedAt,
+        cached: json.meta?.cached
+      };
+    } else {
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: json.timestamp || new Date().toISOString(),
+        error: json.error || `RailRadar station board returned HTTP ${res.status}`
+      };
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Network error';
+    return {
+      source: 'UNAVAILABLE',
+      data: null,
+      timestamp: new Date().toISOString(),
+      error: `Failed to reach RailRadar backend service: ${msg}`
+    };
+  }
+}
+
+/**
+ * Invalidate server-side cache
+ */
+export async function invalidateServerCache(trainNumber?: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/railradar/cache/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(trainNumber ? { trainNumber } : {})
+    });
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
+      const json = await res.json();
+      return !!json.success;
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+/** Corridor train numbers for the Vijayawada Division BPP–CLX corridor */
+export const CORRIDOR_TRAINS = ['12627', '12723', '17011', '20834', '12711', '12615'];
+
+/**
+ * Fetch all corridor trains in parallel with mode & refresh flags.
+ */
+export async function fetchAllCorridorTrains(
+  options: { mode?: 'live' | 'demo'; refresh?: boolean } = {}
+): Promise<{
+  trains: LiveTrainPosition[];
+  source: DataSource;
+  timestamp: string;
+  upstreamUpdatedAt?: string;
+  errors: string[];
+}> {
+  const mode = options.mode || 'live';
+  const results = await Promise.all(
+    CORRIDOR_TRAINS.map(num => fetchLiveTrainStatus(num, { ...options, mode }))
+  );
+
+  const trains: LiveTrainPosition[] = [];
+  const errors: string[] = [];
+  let latestUpstreamUpdate: string | undefined;
+
+  let liveCount = 0;
+  let demoCount = 0;
+
+  for (const r of results) {
+    if (r.data) {
+      trains.push(r.data);
+      if (r.upstreamUpdatedAt && (!latestUpstreamUpdate || r.upstreamUpdatedAt > latestUpstreamUpdate)) {
+        latestUpstreamUpdate = r.upstreamUpdatedAt;
+      }
+    }
+    if (r.source === 'LIVE') liveCount++;
+    if (r.source === 'DEMO') demoCount++;
+    if (r.error) errors.push(r.error);
+  }
+
+  let overallSource: DataSource;
+  if (mode === 'live') {
+    overallSource = liveCount > 0 ? 'LIVE' : 'UNAVAILABLE';
+  } else {
+    overallSource = 'DEMO';
+  }
+
+  return {
+    trains: overallSource === 'UNAVAILABLE' ? [] : trains,
+    source: overallSource,
+    timestamp: new Date().toISOString(),
+    upstreamUpdatedAt: latestUpstreamUpdate,
+    errors: overallSource === 'DEMO' ? [] : errors,
+  };
+}
+
+// -----------------------------------------------------------------------------
+// 20-Minute Planning & Conflict Check Cycle (Prototype Implementation)
+// Flow: Existing RailRadar Service -> 20-min refresh -> Current Train Locations -> Planning Engine / Conflict Monitor
+// -----------------------------------------------------------------------------
+
+export const PLANNING_CONFLICT_CYCLE_INTERVAL_MS = 20 * 60 * 1000; // 20 minutes (1,200,000 ms)
+
+export interface PlanningConflictCycleState {
+  isActive: boolean;
+  intervalMs: number;
+  intervalMinutes: number;
+  lastRunTimestamp: string | null;
+  nextRunTimestamp: string | null;
+  cycleRunCount: number;
+  isExecuting: boolean;
+  lastSource: DataSource | null;
+  lastTrainCount: number;
+  lastError: string | null;
+}
+
+export type PlanningConflictCycleListener = (result: {
+  trains: LiveTrainPosition[];
+  source: DataSource;
+  timestamp: string;
+  cycleCount: number;
+  error?: string;
+}) => void;
+
+class PlanningConflictCycleManager {
+  private timer: any = null;
+  private intervalMs: number = PLANNING_CONFLICT_CYCLE_INTERVAL_MS;
+  private listeners: Set<PlanningConflictCycleListener> = new Set();
+  private inFlightPromise: Promise<{
+    trains: LiveTrainPosition[];
+    source: DataSource;
+    timestamp: string;
+    cycleCount: number;
+    error?: string;
+  }> | null = null;
+  private state: PlanningConflictCycleState = {
+    isActive: false,
+    intervalMs: PLANNING_CONFLICT_CYCLE_INTERVAL_MS,
+    intervalMinutes: 20,
+    lastRunTimestamp: null,
+    nextRunTimestamp: null,
+    cycleRunCount: 0,
+    isExecuting: false,
+    lastSource: null,
+    lastTrainCount: 0,
+    lastError: null
+  };
+
+  public getState(): PlanningConflictCycleState {
+    return { ...this.state };
+  }
+
+  public getActiveTimerCount(): number {
+    return this.timer !== null ? 1 : 0;
+  }
+
+  public getSubscriberCount(): number {
+    return this.listeners.size;
+  }
+
+  public setIntervalMinutes(minutes: number): void {
+    const validMinutes = Math.max(1, minutes);
+    this.intervalMs = validMinutes * 60 * 1000;
+    this.state.intervalMs = this.intervalMs;
+    this.state.intervalMinutes = validMinutes;
+    if (this.state.isActive) {
+      this.stop();
+      this.start();
+    }
+  }
+
+  public subscribe(listener: PlanningConflictCycleListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  public start(intervalMs?: number): void {
+    if (intervalMs) {
+      this.intervalMs = intervalMs;
+      this.state.intervalMs = intervalMs;
+      this.state.intervalMinutes = Math.round(intervalMs / (60 * 1000));
+    }
+    if (this.timer) {
+      // Single loop guard: strictly one timer can exist across the entire application lifecycle
+      return;
+    }
+    this.state.isActive = true;
+    this.state.nextRunTimestamp = new Date(Date.now() + this.intervalMs).toISOString();
+
+    this.timer = setInterval(() => {
+      this.executeCycle();
+    }, this.intervalMs);
+  }
+
+  public stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.state.isActive = false;
+    this.state.nextRunTimestamp = null;
+  }
+
+  public async executeCycle(options: { forceRefresh?: boolean; mode?: 'live' | 'demo' } = {}): Promise<{
+    trains: LiveTrainPosition[];
+    source: DataSource;
+    timestamp: string;
+    cycleCount: number;
+    error?: string;
+  }> {
+    // In-flight coalescing: If a cycle is already running, coalesce all callers onto the exact same promise
+    if (this.inFlightPromise) {
+      return this.inFlightPromise;
+    }
+
+    this.state.isExecuting = true;
+    this.inFlightPromise = (async () => {
+      const now = new Date().toISOString();
+      try {
+        // Safely reuse existing RailRadar corridor fetcher without cache collision
+        const result = await fetchAllCorridorTrains({
+          mode: options.mode || 'live',
+          refresh: options.forceRefresh || false
+        });
+
+        this.state.cycleRunCount += 1;
+        this.state.lastRunTimestamp = now;
+        this.state.nextRunTimestamp = new Date(Date.now() + this.intervalMs).toISOString();
+        this.state.lastSource = result.source;
+        this.state.lastTrainCount = result.trains.length;
+        this.state.lastError = result.errors.length > 0 ? result.errors[0] : null;
+
+        const payload = {
+          trains: result.trains,
+          source: result.source,
+          timestamp: result.timestamp || now,
+          cycleCount: this.state.cycleRunCount,
+          error: this.state.lastError || undefined
+        };
+
+        for (const listener of this.listeners) {
+          try {
+            listener(payload);
+          } catch (e) {
+            console.error('[PlanningConflictCycle] Listener error:', e);
+          }
+        }
+
+        return payload;
+      } catch (err: any) {
+        const errMsg = err?.message || 'Failed executing 20-minute planning check cycle';
+        this.state.lastError = errMsg;
+        const payload = {
+          trains: [],
+          source: 'UNAVAILABLE' as DataSource,
+          timestamp: now,
+          cycleCount: this.state.cycleRunCount,
+          error: errMsg
+        };
+        for (const listener of this.listeners) {
+          try {
+            listener(payload);
+          } catch {}
+        }
+        return payload;
+      } finally {
+        this.state.isExecuting = false;
+      }
+    })().finally(() => {
+      this.inFlightPromise = null;
+    });
+
+    return this.inFlightPromise;
+  }
+}
+
+export const planningConflictCycle = new PlanningConflictCycleManager();

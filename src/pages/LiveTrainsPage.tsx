@@ -222,7 +222,9 @@ export const LiveTrainsPage: React.FC = () => {
               <span><strong>Live Telemetry Notice:</strong> {corridorError}</span>
               {state.isLiveMode && (
                 <p className="text-[11px] text-amber-700 mt-0.5 font-sans">
-                  Live API key not detected. Switch to Demo Timetable to view simulated Vijayawada corridor movement, or configure RAILRADAR_API_KEY in .env.
+                  {corridorError.toLowerCase().includes('backend') || corridorError.toLowerCase().includes('500') || corridorError.toLowerCase().includes('network')
+                    ? 'Express backend proxy connection unreachable. Ensure both Vite and Express are running via npm run dev:all.'
+                    : 'Live telemetry unavailable. Switch to Demo Timetable or check RAILRADAR_API_KEY configuration in .env.'}
                 </p>
               )}
             </div>

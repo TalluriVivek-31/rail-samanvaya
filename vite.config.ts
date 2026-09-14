@@ -15,8 +15,13 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://127.0.0.1:3001',
         changeOrigin: true,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.warn('[Vite Proxy Warning]: Could not connect to Express backend at http://127.0.0.1:3001. Ensure backend is running via npm run dev:all. Error:', err.message);
+          });
+        },
       },
     },
   },

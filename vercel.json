@@ -1,15 +1,26 @@
 {
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Rail-Samanvaya-Routing",
+          "value": "active"
+        }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api"
+      "destination": "/api/$1"
     },
     {
       "source": "/api",
-      "destination": "/api"
+      "destination": "/api/index"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]

@@ -18,6 +18,14 @@ app.use(cors({
   credentials: true
 }));
 
+// Normalize request URL if rewritten by Vercel serverless layer
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.originalUrl && req.originalUrl !== req.url && (req.url === '/' || req.url === '/api' || req.url === '/api/index')) {
+    req.url = req.originalUrl;
+  }
+  next();
+});
+
 // Dedicated Router for API endpoints
 const apiRouter = express.Router();
 
@@ -25,6 +33,19 @@ const apiRouter = express.Router();
 apiRouter.use((req: Request, res: Response, next: NextFunction) => {
   res.setHeader('Content-Type', 'application/json');
   next();
+});
+
+// Root API info endpoint
+apiRouter.get('/', (req: Request, res: Response) => {
+  const hasKey = Boolean(process.env.RAILRADAR_API_KEY && process.env.RAILRADAR_API_KEY.trim().length > 5);
+  res.json({
+    name: 'Rail Samanvaya API',
+    status: 'ok',
+    railradarConfigured: hasKey,
+    environment: process.env.NODE_ENV || 'production',
+    serverless: Boolean(process.env.VERCEL),
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Root API Health check

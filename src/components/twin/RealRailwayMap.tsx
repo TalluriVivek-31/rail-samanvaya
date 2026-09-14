@@ -119,11 +119,18 @@ export const RealRailwayMap: React.FC<RealRailwayMapProps> = ({
       attributionControl: false
     });
 
-    // Clean base layer: CartoDB Voyager
-    const baseLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    // Clean base layer: OpenStreetMap standard tiles (or Carto Voyager if API key provided)
+    const cartoKey = import.meta.env.VITE_CARTO_API_KEY;
+    const tileUrl = cartoKey
+      ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${cartoKey}`
+      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+    const baseLayer = L.tileLayer(tileUrl, {
       maxZoom: 19,
-      subdomains: 'abcd',
-      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+      subdomains: cartoKey ? 'abcd' : 'abc',
+      attribution: cartoKey
+        ? '&copy; OpenStreetMap contributors &copy; CARTO'
+        : '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
     }).addTo(map);
     baseTilesRef.current = baseLayer;
 

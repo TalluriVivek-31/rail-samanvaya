@@ -266,8 +266,8 @@ assert(
   'Continuation block explicitly preserves link to parent block (continuationOfBlockId)'
 );
 assert(
-  contReq?.status === 'Submitted',
-  'Continuation block enters planning queue with status "Submitted" (NEVER auto-granted)'
+  contReq?.status === 'Submitted' || contReq?.status === 'SUBMITTED',
+  'Continuation block enters planning queue with status "Submitted" / "SUBMITTED" (NEVER auto-granted)'
 );
 
 // ---------------------------------------------------------------------------

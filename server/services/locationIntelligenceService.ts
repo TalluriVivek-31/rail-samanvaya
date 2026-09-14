@@ -22,6 +22,11 @@ import {
   RailwayMilestone,
   CORRIDOR_GIS_FALLBACK 
 } from '../integrations/openRailwayMapService.js';
+import { 
+  resolveMaintenanceLocation, 
+  getStationDetails, 
+  normalizeRailwayKm 
+} from './railwayGeospatialService.js';
 
 export type ConflictCategory = 'HARD_CONFLICT' | 'COORDINATION_OPPORTUNITY' | 'NO_CONFLICT';
 
@@ -36,6 +41,11 @@ export interface LocationIntelligenceData {
     kmDisplay: string;
     isStationLimitIntersection: boolean;
     yardLimits?: { startKm: number; endKm: number };
+    zone?: string;
+    division?: string;
+    state?: string;
+    latitude?: number;
+    longitude?: number;
   } | null;
   betweenStations: {
     fromStation: string;
@@ -64,6 +74,7 @@ export interface LocationIntelligenceData {
     availableTracks: string[];
     speedLimitKmph: number;
     electrified: boolean;
+    detailedTracks?: any[];
   };
   locationRange: {
     startKmDecimal: number;
@@ -79,9 +90,9 @@ export interface LocationIntelligenceData {
     items: any[];
   };
 
-  // Geospatial Context (OpenRailwayMap)
+  // Geospatial Context (OpenRailwayMap / OSM)
   gisContext: {
-    source: 'OPENRAILWAYMAP' | 'INFRASTRUCTURE_FALLBACK' | 'CACHE';
+    source: 'OPENRAILWAYMAP' | 'INFRASTRUCTURE_FALLBACK' | 'CACHE' | 'OSM';
     centerCoordinates: { lat: number; lon: number };
     boundingBox: [number, number, number, number];
     geometry: RailwayGisGeometry[];
@@ -101,6 +112,10 @@ export interface LocationIntelligenceData {
     conflictCategory: ConflictCategory;
     conflictSummary: string;
   };
+
+  nearbyStations?: any[];
+  affectedFacilities?: any[];
+  dataProvenance?: any;
 
   timestamp: string;
 }
@@ -143,11 +158,126 @@ export async function resolveLocationIntelligence(
   startLocationInput: string | number,
   endLocationInput: string | number,
   requestedTrack: string = 'UP Main',
-  activeLiveTrains: any[] = []
+  activeLiveTrains: any[] = [],
+  stationCode?: string
 ): Promise<LocationIntelligenceData> {
+  const now = new Date().toISOString();
+
+  // If stationCode is provided and not in the default 6 corridor stations, or if detectLocation failed:
+  const isLocalStation = stationCode ? STATIONS.some(s => s.code.toUpperCase() === stationCode.trim().toUpperCase()) : false;
+  
+  if (stationCode && !isLocalStation) {
+    const geo = resolveMaintenanceLocation(stationCode, startLocationInput, endLocationInput, requestedTrack);
+    if (geo.isValid) {
+      // Evaluate live train conflict
+      const normalizedRequestedTrack = requestedTrack.toLowerCase();
+      const approachingTrains = (activeLiveTrains || []).filter(t => {
+        const trainTrack = (t.track || '').toLowerCase();
+        return (trainTrack.includes('up') && normalizedRequestedTrack.includes('up')) ||
+               (trainTrack.includes('dn') && normalizedRequestedTrack.includes('dn'));
+      });
+
+      let conflictCat: ConflictCategory = 'NO_CONFLICT';
+      let conflictSummary = 'No conflicting train paths in immediate safety window';
+      if (approachingTrains.length > 0) {
+        conflictCat = 'HARD_CONFLICT';
+        const firstTrain = approachingTrains[0];
+        conflictSummary = `TRAIN MOVEMENT CONFLICT: ${firstTrain.trainName || firstTrain.trainNumber} on ${requestedTrack} projected passage overlaps safety headway margin.`;
+      }
+
+      return {
+        isValid: true,
+        station: {
+          code: geo.primaryStation.code,
+          name: geo.primaryStation.name,
+          km: geo.startKmDecimal,
+          kmDisplay: geo.startKmDisplay,
+          isStationLimitIntersection: geo.isStationLimitIntersection,
+          zone: geo.primaryStation.zone,
+          division: geo.primaryStation.division,
+          state: geo.primaryStation.state,
+          latitude: geo.primaryStation.latitude,
+          longitude: geo.primaryStation.longitude
+        },
+        betweenStations: null,
+        section: {
+          id: geo.section.id,
+          name: geo.section.name,
+          startKm: geo.startKmDecimal,
+          endKm: geo.endKmDecimal,
+          isCrossSection: geo.section.isCrossSection,
+          allAffectedSections: geo.section.affectedSections
+        },
+        route: {
+          id: `${geo.primaryStation.code}-ROUTE`,
+          code: `${geo.primaryStation.zone}-TRUNK`,
+          name: `${geo.primaryStation.name} Corridor`
+        },
+        line: {
+          name: geo.line.name,
+          availableLines: geo.line.availableLines
+        },
+        track: {
+          requestedTrack: geo.track.requestedTrack,
+          availableTracks: geo.track.availableTracks,
+          speedLimitKmph: geo.track.detailedTracks[0]?.speedLimitKmph || 130,
+          electrified: geo.track.detailedTracks[0]?.electrified ?? true,
+          detailedTracks: geo.track.detailedTracks
+        },
+        locationRange: {
+          startKmDecimal: geo.startKmDecimal,
+          endKmDecimal: geo.endKmDecimal,
+          startKmDisplay: geo.startKmDisplay,
+          endKmDisplay: geo.endKmDisplay,
+          affectedLengthKm: geo.affectedLengthKm,
+          affectedLengthMeters: geo.affectedLengthMeters
+        },
+        assets: {
+          inRangeCount: geo.affectedFacilities.length,
+          criticalCount: 0,
+          items: geo.affectedFacilities
+        },
+        gisContext: {
+          source: 'OSM',
+          centerCoordinates: { lat: geo.primaryStation.latitude, lon: geo.primaryStation.longitude },
+          boundingBox: [
+            geo.primaryStation.latitude - 0.05,
+            geo.primaryStation.longitude - 0.05,
+            geo.primaryStation.latitude + 0.05,
+            geo.primaryStation.longitude + 0.05
+          ],
+          geometry: [],
+          nearbyFacilities: geo.affectedFacilities.map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            type: f.type,
+            lat: f.lat,
+            lon: f.lon,
+            source: 'OPENRAILWAYMAP'
+          })),
+          milestones: [],
+          apiDisclaimer: geo.dataProvenance.disclaimer
+        },
+        liveTrainContext: {
+          sectionTrafficDensity: 'MEDIUM',
+          approachingTrainsCount: approachingTrains.length,
+          earliestArrivalMinutes: approachingTrains.length > 0 ? 25 : null,
+          closestTrainNumber: approachingTrains[0]?.trainNumber,
+          closestTrainName: approachingTrains[0]?.trainName,
+          closestTrainDelay: approachingTrains[0]?.delayMinutes || 0,
+          conflictCategory: conflictCat,
+          conflictSummary
+        },
+        nearbyStations: geo.nearbyStations,
+        affectedFacilities: geo.affectedFacilities,
+        dataProvenance: geo.dataProvenance,
+        timestamp: now
+      };
+    }
+  }
+
   // 1. Authoritative Infrastructure Master Resolution
   const infraResult = detectLocation(startLocationInput, endLocationInput);
-  const now = new Date().toISOString();
 
   if (!infraResult.isValid) {
     return {
@@ -343,6 +473,19 @@ export async function resolveLocationIntelligence(
       closestTrainDelay: approachingTrains[0]?.delayMinutes || 0,
       conflictCategory: conflictCat,
       conflictSummary
+    },
+    nearbyStations: STATIONS.map(s => ({
+      code: s.code,
+      name: s.name,
+      division: 'Vijayawada (BZA)',
+      distanceKm: Math.abs(s.km - midKm)
+    })),
+    affectedFacilities: infraResult.assets?.list || [],
+    dataProvenance: {
+      geospatialSource: 'OSM',
+      sourceDataset: 'OpenRailwayMap & Rail Samanvaya Infrastructure Master',
+      planningModel: 'Rail Samanvaya Infrastructure Master',
+      disclaimer: 'Geospatial railway network geometry and station reference data derived from OpenStreetMap. Operational maintenance block planning validated against Rail Samanvaya Infrastructure Master.'
     },
     timestamp: now
   };

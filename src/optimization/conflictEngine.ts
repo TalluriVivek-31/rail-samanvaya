@@ -7,6 +7,14 @@ import { detectCrossSectionSpans, CrossSectionAnalysis } from '../utils/railwayL
 import { PlannedCorridorMovement, SCHEDULED_CORRIDOR_MOVEMENTS, DEFAULT_PLANNING_PARAMETERS } from './corridorSchedule';
 
 export interface AdvancedPlanningOptions {
+  possessionBreakdown?: {
+    mobilisation_duration?: number;
+    setup_duration?: number;
+    work_duration?: number;
+    clearance_duration?: number;
+    restoration_duration?: number;
+    total_required_duration?: number;
+  };
   breakdown?: {
     setupMinutes?: number;
     workMinutes?: number;
@@ -43,6 +51,14 @@ export interface DetailedConflictAnalysisResult {
     verificationMinutes: number;
     restorationMinutes: number;
   };
+  possessionBreakdown?: {
+    mobilisation_duration: number;
+    setup_duration: number;
+    work_duration: number;
+    clearance_duration: number;
+    restoration_duration: number;
+    total_required_duration: number;
+  };
   qualityRating: 'RECOMMENDED' | 'BEST_FEASIBLE_CANDIDATE_FOUND' | 'NO_FEASIBLE_SOLUTION' | 'OPTIMIZATION_FAILED';
   crossSectionAnalysis: CrossSectionAnalysis;
 }
@@ -60,33 +76,33 @@ export interface DetailedConflictAnalysisResult {
 export function analyzeLocationTrainConflicts(
   startKm: number,
   endKm: number,
-  selectedTracks: string[],
-  durationMinutes: number,
+  selectedTracks: string[] = ['UP Main'],
+  durationMinutes: number = 120,
   requestedTime: string = '02:00',
   liveTrains: LiveTrainPosition[] = [],
   parameters: PlanningParameters = DEFAULT_PLANNING_PARAMETERS,
+  dataSource: 'LIVE' | 'LAST_KNOWN' | 'DEMO' | 'UNAVAILABLE' = 'LIVE',
+  lastFetchTimestamp: string | null = null,
   options?: AdvancedPlanningOptions
 ): DetailedConflictAnalysisResult {
-  const headwayBuffer = parameters.headwayBufferMinutes || 15;
-  const hasLiveTelemetry = Boolean(liveTrains && liveTrains.length > 0);
-  const crossSectionAnalysis = detectCrossSectionSpans(startKm, endKm);
-  const liveWarning = hasLiveTelemetry 
-    ? undefined 
-    : 'LIVE TRAIN DATA UNAVAILABLE: Dynamic corridor telemetry feed is not active. Candidate windows are evaluated against scheduled timetable and goods rake forecast only. Dynamic en-route delays and real-time headway conflicts cannot be guaranteed.';
+  const headwayBuffer = parameters.headwayBufferMinutes ?? 15;
+  const hasLiveTelemetry = dataSource === 'LIVE' && liveTrains.length > 0;
+  const liveWarning = !hasLiveTelemetry
+    ? 'LIVE TRAIN DATA UNAVAILABLE: Real-time train positions from RailRadar are offline. Evaluation is using static master timetables and goods movement forecasts.'
+    : undefined;
 
-  // Stale Telemetry Detection (Section 16 of specification)
-  const freshnessThresholdMins = options?.telemetryFreshnessThresholdMinutes ?? 15;
+  // Stale Telemetry Check
   let isLiveDataStale = false;
   let staleDataWarning: string | undefined = undefined;
+  const freshnessThresholdMins = options?.telemetryFreshnessThresholdMinutes ?? 15;
 
   if (hasLiveTelemetry) {
-    const nowMs = Date.now();
     for (const t of liveTrains) {
       const ts = t.telemetryTimestamp || t.upstreamUpdatedAt || t.lastUpdated;
       if (ts) {
-        const parsed = Date.parse(ts);
+        const parsed = new Date(ts).getTime();
         if (!isNaN(parsed)) {
-          const ageMinutes = (nowMs - parsed) / (1000 * 60);
+          const ageMinutes = (Date.now() - parsed) / (1000 * 60);
           if (ageMinutes > freshnessThresholdMins) {
             isLiveDataStale = true;
             staleDataWarning = `LIVE DATA STALE: Train telemetry timestamp (${ts}) is older than ${freshnessThresholdMins} minutes. Real-time headway conflict confidence is degraded.`;
@@ -97,16 +113,26 @@ export function analyzeLocationTrainConflicts(
     }
   }
 
-  // Possession Duration Breakdown (Section 12 of specification)
-  // Total Required Possession = Setup + Work + Verification + Restoration
-  const hasExplicitBreakdown = Boolean(options?.breakdown);
-  const setupMinutes = options?.breakdown?.setupMinutes ?? (hasExplicitBreakdown ? 15 : 0);
-  const workMinutes = options?.breakdown?.workMinutes ?? durationMinutes;
-  const verificationMinutes = options?.breakdown?.verificationMinutes ?? (hasExplicitBreakdown ? 10 : 0);
-  const restorationMinutes = options?.breakdown?.restorationMinutes ?? (hasExplicitBreakdown ? 15 : 0);
-  const totalRequiredPossessionMinutes = hasExplicitBreakdown
-    ? setupMinutes + workMinutes + verificationMinutes + restorationMinutes
-    : durationMinutes;
+  // Possession Duration Breakdown (Section 12, 18 of specification)
+  // Total Required Possession = Mobilisation + Setup + Pure Work + Clearance + Restoration
+  const pb = options?.possessionBreakdown;
+  const bd = options?.breakdown;
+  const hasExplicitBreakdown = Boolean(pb || bd);
+
+  const mobilisationMinutes = pb?.mobilisation_duration ?? 0;
+  const setupMinutes = pb?.setup_duration ?? bd?.setupMinutes ?? (hasExplicitBreakdown ? 15 : 0);
+  const workMinutes = pb?.work_duration ?? bd?.workMinutes ?? durationMinutes;
+  const clearanceMinutes = pb?.clearance_duration ?? 0;
+  const verificationMinutes = bd?.verificationMinutes ?? 0;
+  const restorationMinutes = pb?.restoration_duration ?? bd?.restorationMinutes ?? (hasExplicitBreakdown ? 15 : 0);
+
+  const totalRequiredPossessionMinutes = pb?.total_required_duration ?? (
+    hasExplicitBreakdown
+      ? mobilisationMinutes + setupMinutes + workMinutes + clearanceMinutes + verificationMinutes + restorationMinutes
+      : durationMinutes
+  );
+
+  const crossSectionAnalysis = detectCrossSectionSpans(startKm, endKm);
 
   // Merge scheduled paths with live RailRadar train positions
   const activeMovements: PlannedCorridorMovement[] = [...SCHEDULED_CORRIDOR_MOVEMENTS];
@@ -442,6 +468,7 @@ export function calculateCorridorAssetAvailability(
 } {
   const counts: Record<InfrastructureCondition, number> = {
     NORMAL: 0,
+    NORMAL_RESTORED: 0,
     RESTRICTED: 0,
     RESTORATION_PENDING: 0,
     UNAVAILABLE: 0,

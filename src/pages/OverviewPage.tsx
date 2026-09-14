@@ -75,11 +75,11 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
           <div className="flex items-center space-x-2 mb-1">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
             <h1 className="text-2xl font-bold tracking-tight text-railway-textPrimary font-sans">
-              Operational Home
+              Home
             </h1>
           </div>
           <p className="text-xs font-mono text-railway-textSecondary">
-            South Central Railway · Vijayawada Division · BZA Control
+            Indian Railways · National Network Management
           </p>
         </div>
 
@@ -313,7 +313,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
             className="p-4 rounded-xl bg-railway-canvas border border-railway-border cursor-pointer hover:border-railway-forest transition space-y-3"
           >
             <div className="flex items-center justify-between text-xs font-mono">
-              <span className="font-bold text-railway-textPrimary">Vijayawada Division Trunk Corridors</span>
+              <span className="font-bold text-railway-textPrimary">Configured Prototype Corridor (BZA–GNT–TEL)</span>
               <span className="text-[10px] text-emerald-700 font-semibold">AUTOMATIC BLOCK</span>
             </div>
 
@@ -357,7 +357,6 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
               <h2 className="text-base font-bold text-railway-textPrimary font-sans">
                 Upcoming Maintenance
               </h2>
-              <p className="text-xs text-railway-textSecondary">Scheduled corridor possessions and work orders</p>
             </div>
             <button 
               onClick={() => onNavigate('requests')}
@@ -384,7 +383,6 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
                   <tr>
                     <td colSpan={5} className="py-8 text-center text-railway-textMuted text-xs font-mono">
                       <div className="font-bold text-neutral-600">No scheduled blocks</div>
-                      <div className="text-[11px] text-neutral-400 mt-0.5">Approved maintenance work will appear here after authorized scheduling.</div>
                     </td>
                   </tr>
                 ) : (
@@ -426,7 +424,6 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
               <h2 className="text-base font-bold text-railway-textPrimary font-sans">
                 Live Train Movement
               </h2>
-              <p className="text-xs text-railway-textSecondary">RailRadar™ sectional feed</p>
             </div>
             <button 
               onClick={() => onNavigate('live-trains')}

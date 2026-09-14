@@ -15,6 +15,68 @@ export interface ApiResponse<T> {
   meta?: { cached: boolean; cacheExpiresAt?: string };
 }
 
+export type FailureState = 
+  | 'LIVE' 
+  | 'DEMO' 
+  | 'NOT_CONFIGURED' 
+  | 'BACKEND_UNAVAILABLE' 
+  | 'AUTHENTICATION_FAILED' 
+  | 'PROVIDER_UNAVAILABLE' 
+  | 'REQUEST_TIMEOUT' 
+  | 'INVALID_RESPONSE' 
+  | 'NO_TELEMETRY' 
+  | 'STALE';
+
+export interface RailRadarHealthStatus {
+  provider: string;
+  configured: boolean;
+  backend: 'available' | 'unavailable';
+  providerReachable: boolean;
+  providerStatus: 'ready' | 'rate_limited' | 'auth_failed' | 'degraded' | 'unreachable' | 'unknown';
+  status: string;
+  failureState: FailureState;
+  httpStatus?: number;
+  timestamp: string;
+  message: string;
+}
+
+/**
+ * Diagnostic health check for RailRadar API end-to-end connectivity.
+ * Checks backend availability, configuration, and upstream provider status without leaking secrets.
+ */
+export async function checkRailRadarHealth(): Promise<RailRadarHealthStatus> {
+  try {
+    const res = await fetch('/api/railradar/health');
+    if (!res.ok) {
+      return {
+        provider: 'RailRadar',
+        configured: false,
+        backend: 'unavailable',
+        providerReachable: false,
+        providerStatus: 'unreachable',
+        status: 'backend_unavailable',
+        failureState: 'BACKEND_UNAVAILABLE',
+        timestamp: new Date().toISOString(),
+        message: `Express backend health endpoint returned HTTP ${res.status}`
+      };
+    }
+    const json = await res.json();
+    return json;
+  } catch (err: any) {
+    return {
+      provider: 'RailRadar',
+      configured: false,
+      backend: 'unavailable',
+      providerReachable: false,
+      providerStatus: 'unreachable',
+      status: 'backend_unavailable',
+      failureState: 'BACKEND_UNAVAILABLE',
+      timestamp: new Date().toISOString(),
+      message: `Failed to reach Express backend: ${err?.message || 'Connection refused'}`
+    };
+  }
+}
+
 /** Authentic Indian Railways Corridor Telemetry Database for Vijayawada Division */
 const STATIC_DEMO_TRAINS: Record<string, LiveTrainPosition> = {
   '12627': {

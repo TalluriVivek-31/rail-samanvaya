@@ -1,6 +1,6 @@
 // Operational Execution Tracker Page
 // Implements Indian Railways G&SR Chapter XV Safety & Execution Workflow
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useSamnvayStore } from '../store/useSamnvayStore';
 import { 
   PlayCircle, 
@@ -15,7 +15,12 @@ import {
   Layers,
   AlertCircle,
   Check,
-  X
+  X,
+  ShieldCheck,
+  Send,
+  RotateCcw,
+  CheckCheck,
+  Sparkles
 } from 'lucide-react';
 import type { 
   SamnvayPage, 
@@ -23,7 +28,8 @@ import type {
   IncompletionReasonCategory, 
   OperationalRestrictionType,
   Department,
-  DepartmentWorkStatus
+  DepartmentWorkStatus,
+  InfrastructureCondition
 } from '../types/samnvay';
 
 interface ExecutionPageProps {
@@ -38,11 +44,19 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
     submitCompletionReport,
     requestContinuationBlock,
     recordOperationalRestriction,
-    updateDepartmentExecutionStatus 
+    updateDepartmentExecutionStatus,
+    imposeBlock,
+    returnBlock,
+    recordRestoration,
+    closeBlock
   } = useSamnvayStore();
 
+  const [selectedReqId, setSelectedReqId] = useState<string | null>(null);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [showRestrictionModal, setShowRestrictionModal] = useState(false);
+  const [showRestorationModal, setShowRestorationModal] = useState(false);
+  const [restorationTargetCondition, setRestorationTargetCondition] = useState<InfrastructureCondition>('NORMAL_RESTORED');
+  const [restorationVerificationRemarks, setRestorationVerificationRemarks] = useState('All track measurements, clearance, and OHE isolation restored.');
 
   // Completion Form State
   const [compStatus, setCompStatus] = useState<CompletionStatus>('WORK_COMPLETED');
@@ -59,18 +73,41 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
   const [resSpeed, setResSpeed] = useState<number>(45);
   const [resReason, setResReason] = useState('Consolidation of disturbed ballast bed after track maintenance.');
 
-  const activeReq = state.requests.find(r => 
-    r.status === 'Block Started' || 
-    r.status === 'Work in Progress' || 
-    r.status === 'Work Completed' || 
-    r.status === 'Inspection/Safety Verification' || 
-    r.status === 'Block Release Requested' || 
-    r.status === 'Scheduled' || 
-    r.status === 'Block Window Allocated' ||
-    r.status === 'Approved' ||
-    r.status === 'Active' ||
-    r.status === 'Planning'
-  );
+  const activeReq = useMemo(() => {
+    if (selectedReqId) {
+      const found = state.requests.find(r => r.id === selectedReqId);
+      if (found) return found;
+    }
+    // Prioritize active or executing blocks
+    const executing = state.requests.find(r => 
+      r.status === 'IMPOSED' || 
+      r.status === 'WORK_STARTED' || 
+      r.status === 'Block Started' || 
+      r.status === 'Work in Progress' || 
+      r.status === 'COMPLETION_REPORT_REQUIRED' ||
+      r.status === 'RESTORATION_PENDING' ||
+      r.status === 'BLOCK_RETURNED'
+    );
+    if (executing) return executing;
+
+    const scheduled = state.requests.find(r => 
+      r.status === 'SCHEDULED' || 
+      r.status === 'Scheduled' || 
+      r.status === 'AUTHORIZED' || 
+      r.status === 'Approved'
+    );
+    if (scheduled) return scheduled;
+
+    const completed = state.requests.find(r => 
+      r.status === 'NORMAL_RESTORED' || 
+      r.status === 'RESTRICTED' || 
+      r.status === 'CLOSED' || 
+      r.status === 'Closed'
+    );
+    if (completed) return completed;
+
+    return state.requests[0];
+  }, [selectedReqId, state.requests]);
 
   const currentStepIndex = state.executionSteps.findIndex(s => s.status === 'IN_PROGRESS');
   const currentStep = currentStepIndex !== -1 ? state.executionSteps[currentStepIndex] : state.executionSteps[0];
@@ -124,11 +161,11 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
                 <PlayCircle className="w-4 h-4" />
               </div>
               <h1 className="text-3xl font-bold tracking-tight text-railway-textPrimary font-sans">
-                Operational Execution Tracker
+                Block Execution
               </h1>
             </div>
             <p className="text-sm text-railway-textSecondary mt-1">
-              Real-time track possession monitoring, safety protection protocol, and block release lifecycle.
+              Possession Lifecycle & Safety Protocol
             </p>
           </div>
 
@@ -145,12 +182,12 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
           <div className="w-20 h-20 rounded-full bg-railway-canvas mx-auto flex items-center justify-center text-railway-forest border border-railway-border">
             <PlayCircle className="w-10 h-10 text-neutral-400" />
           </div>
-          <div className="space-y-2 max-w-md mx-auto">
+          <div className="space-y-1 max-w-md mx-auto">
             <h3 className="text-xl font-bold text-railway-textPrimary font-sans">
-              No track possession currently in execution
+              No Active Track Possession
             </h3>
-            <p className="text-xs text-railway-textSecondary leading-relaxed">
-              When a maintenance block request is approved and allocated, it transitions into the 6-stage execution tracking protocol here. Authorized personnel can log track protection, verify disconnection, and issue release memos.
+            <p className="text-xs text-railway-textSecondary">
+              Scheduled blocks will appear here upon authorization.
             </p>
           </div>
           <div className="flex items-center justify-center gap-3 pt-2 font-mono text-xs text-railway-textMuted">
@@ -230,6 +267,71 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
         </div>
       </div>
 
+      {/* REQUISITION SELECTOR PILLS BAR */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-white border border-railway-border text-xs font-mono">
+        <div className="flex items-center space-x-2">
+          <span className="text-neutral-500 font-bold uppercase text-[10px]">Select Requisition to Track:</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {state.requests.map(req => {
+            const isSelected = activeReq.id === req.id;
+            return (
+              <button
+                key={req.id}
+                onClick={() => setSelectedReqId(req.id)}
+                className={`px-3 py-1.5 rounded-full text-xs font-mono font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                  isSelected
+                    ? 'bg-railway-forest text-white border-railway-forest shadow-xs'
+                    : 'bg-neutral-50 hover:bg-neutral-100 text-neutral-700 border-neutral-200'
+                }`}
+              >
+                <span>{req.id}</span>
+                <span className={`text-[9px] px-1.5 py-0.2 rounded-full ${
+                  isSelected ? 'bg-white/20 text-white' : 'bg-neutral-200 text-neutral-600'
+                }`}>
+                  {req.department}
+                </span>
+                <span className={`text-[9px] px-1.5 py-0.2 rounded-full ${
+                  req.status === 'IMPOSED' || req.status === 'WORK_STARTED' ? 'bg-emerald-200 text-emerald-900 font-bold animate-pulse' :
+                  req.status === 'COMPLETION_REPORT_REQUIRED' ? 'bg-rose-200 text-rose-950 font-bold' :
+                  req.status === 'PARTIALLY_COMPLETED' ? 'bg-amber-200 text-amber-950' :
+                  'opacity-80'
+                }`}>
+                  {req.status}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* OVERDUE COMPLETION REPORT URGENT ALERT */}
+      {(activeReq.isOverdueCompletionReport || activeReq.status === 'COMPLETION_REPORT_REQUIRED') && (
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-400 text-rose-950 flex items-start gap-3 shadow-md animate-pulse">
+          <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+          <div className="text-xs space-y-1">
+            <div className="font-bold uppercase tracking-wider text-rose-900">
+              URGENT: Maintenance Completion Report Mandatory
+            </div>
+            <div className="text-rose-800 leading-relaxed font-sans">
+              Block window duration has concluded. Indian Railways safety regulations (G&SR Chapter XV) require immediate submission of physical work completion status, gauge tolerances, and site clearance certification. Block release cannot be authorized without this report.
+            </div>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCompActualMins(activeReq.actual_duration || activeReq.planned_duration || activeReq.duration || 120);
+                  setShowCompletionModal(true);
+                }}
+                className="px-4 py-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white font-bold font-mono text-xs shadow-xs transition cursor-pointer"
+              >
+                File Mandatory Completion Report Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CROSS-SECTION SPAN ALERT BANNER */}
       {activeReq.isCrossSection && (
         <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 flex items-start gap-3 shadow-xs">
@@ -255,15 +357,15 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
             </span>
             {isLivePossession ? (
               <span className="px-3 py-1 rounded-full bg-railway-signalGreen/20 text-railway-signalGreenLight border border-railway-signalGreen/40 text-xs font-mono font-bold animate-pulse">
-                ● LIVE ON-TRACK POSSESSION
+                ● LIVE ON-TRACK POSSESSION ({activeReq.status})
               </span>
             ) : isComplete ? (
               <span className="px-3 py-1 rounded-full bg-emerald-400/20 text-emerald-300 border border-emerald-400/40 text-xs font-mono font-bold">
-                ✓ BLOCK COMPLETED & RELEASED
+                ✓ BLOCK COMPLETED &amp; RELEASED
               </span>
             ) : (
               <span className="px-3 py-1 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/40 text-xs font-mono font-bold">
-                STANDBY FOR ON-TRACK ENTRY
+                STATUS: {activeReq.status}
               </span>
             )}
             {hasPartialCompletion && (
@@ -336,8 +438,108 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
           </div>
         </div>
 
+        {/* REAL RAILWAY OPERATIONAL LIFECYCLE CONTROLS */}
+        <div className="p-4 rounded-2xl bg-white/10 border border-white/20 space-y-3 font-mono text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/15 pb-2">
+            <span className="font-bold text-white uppercase text-[11px] flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>Operational Lifecycle Protocol Control Bar</span>
+            </span>
+            <span className="text-[10px] text-white/70">
+              CURRENT STATUS: <strong className="text-amber-300">{activeReq.status}</strong>
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Step A: Impose Block (Control) */}
+            {(activeReq.status === 'SCHEDULED' || activeReq.status === 'Scheduled' || activeReq.status === 'AUTHORIZED' || activeReq.status === 'Approved') && (
+              <button
+                type="button"
+                onClick={() => imposeBlock(activeReq.id)}
+                className="px-4 py-2 rounded-full bg-teal-400 hover:bg-teal-300 text-neutral-950 font-bold text-xs shadow-xs transition active:scale-98 flex items-center gap-1.5 cursor-pointer"
+              >
+                <ShieldAlert className="w-4 h-4" />
+                <span>Impose Block &amp; Issue Permit-to-Work (Control)</span>
+              </button>
+            )}
+
+            {/* Step B: Start Physical Work (Field) */}
+            {(activeReq.status === 'IMPOSED' || activeReq.status === 'Block Started') && (
+              <button
+                type="button"
+                onClick={() => handleNext()}
+                className="px-4 py-2 rounded-full bg-cyan-300 hover:bg-cyan-200 text-neutral-950 font-bold text-xs shadow-xs transition active:scale-98 flex items-center gap-1.5 cursor-pointer"
+              >
+                <PlayCircle className="w-4 h-4" />
+                <span>Start Physical Work &amp; Protect Track (Field Gang)</span>
+              </button>
+            )}
+
+            {/* Step C: Record Work Completion / Partial Completion (Field) */}
+            {(activeReq.status === 'WORK_STARTED' || activeReq.status === 'Work in Progress' || activeReq.status === 'COMPLETION_REPORT_REQUIRED') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCompActualMins(activeReq.planned_duration || activeReq.duration || 120);
+                  setShowCompletionModal(true);
+                }}
+                className="px-4 py-2 rounded-full bg-amber-400 hover:bg-amber-300 text-neutral-950 font-bold text-xs shadow-xs transition active:scale-98 flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileText className="w-4 h-4" />
+                <span>Submit Completion Report (Field Sign-off)</span>
+              </button>
+            )}
+
+            {/* Step D: Return Block to Control (Field) */}
+            {(activeReq.status === 'COMPLETED' || activeReq.status === 'Work Completed' || activeReq.status === 'PARTIALLY_COMPLETED') && (
+              <button
+                type="button"
+                onClick={() => returnBlock(activeReq.id)}
+                className="px-4 py-2 rounded-full bg-sky-300 hover:bg-sky-200 text-neutral-950 font-bold text-xs shadow-xs transition active:scale-98 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+                <span>Return Block to Section Controller (Handover)</span>
+              </button>
+            )}
+
+            {/* Step E: Verification & Restoration Gate (Control & Field) */}
+            {(activeReq.status === 'BLOCK_RETURNED' || activeReq.status === 'RESTORATION_PENDING') && (
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => recordRestoration(activeReq.id, 'NORMAL_RESTORED', 'Track fit verified at full section speed (130 km/h).')}
+                  className="px-4 py-2 rounded-full bg-emerald-400 hover:bg-emerald-300 text-neutral-950 font-bold text-xs shadow-xs transition active:scale-98 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <CheckCheck className="w-4 h-4" />
+                  <span>Verify Normal Speed (130 km/h)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowRestrictionModal(true)}
+                  className="px-4 py-2 rounded-full bg-orange-400 hover:bg-orange-300 text-neutral-950 font-bold text-xs shadow-xs transition active:scale-98 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Gauge className="w-4 h-4" />
+                  <span>Verify with Caution Order (TSR)</span>
+                </button>
+              </div>
+            )}
+
+            {/* Step F: Close Block (Final) */}
+            {(activeReq.status === 'NORMAL_RESTORED' || activeReq.status === 'RESTRICTED') && (
+              <button
+                type="button"
+                onClick={() => closeBlock(activeReq.id)}
+                className="px-4 py-2 rounded-full bg-white hover:bg-neutral-100 text-neutral-950 font-bold text-xs shadow-xs transition active:scale-98 flex items-center gap-1.5 cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Final Closure &amp; Archive Block Requisition</span>
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* PLANNED VS ACTUAL TIMING & OPERATIONAL ACCOUNTABILITY */}
-        <div className="pt-4 border-t border-white/15 grid grid-cols-2 sm:grid-cols-5 gap-4 text-xs font-mono text-white/75">
+        <div className="pt-4 border-t border-white/15 grid grid-cols-2 sm:grid-cols-6 gap-3 text-xs font-mono text-white/75">
           <div>
             <span className="text-white/50 block text-[10px] uppercase">Planned Window</span>
             <span className="font-bold text-white">
@@ -351,27 +553,35 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
             </span>
           </div>
           <div>
-            <span className="text-white/50 block text-[10px] uppercase">Variance / Overrun</span>
+            <span className="text-white/50 block text-[10px] uppercase">Variance</span>
             <span className={`font-bold ${
               (activeReq.duration_variance || 0) > 0 ? 'text-amber-300' :
               (activeReq.duration_variance || 0) < 0 ? 'text-blue-300' :
               'text-white'
             }`}>
               {activeReq.duration_variance != null 
-                ? `${activeReq.duration_variance >= 0 ? '+' : ''}${activeReq.duration_variance}m (${activeReq.duration_variance > 0 ? 'Overrun' : 'Under-run'})`
+                ? `${activeReq.duration_variance >= 0 ? '+' : ''}${activeReq.duration_variance}m`
                 : 'In Progress'}
             </span>
           </div>
           <div>
-            <span className="text-white/50 block text-[10px] uppercase">Track Fit / Restriction</span>
-            <span className={`font-bold ${hasActiveTsr ? 'text-orange-300' : 'text-railway-signalGreenLight'}`}>
-              {hasActiveTsr ? `TSR: ${activeReq.operationalRestriction?.speedKmph} km/h` : 'Normal Speed (130 km/h)'}
+            <span className="text-white/50 block text-[10px] uppercase">PTW Private No.</span>
+            <span className="font-bold text-teal-300 truncate block">
+              {activeReq.permit_to_work_private_number || 'Pending'}
             </span>
+            <span className="text-[9px] text-white/40 block">(Simulated)</span>
           </div>
           <div>
-            <span className="text-white/50 block text-[10px] uppercase">Block Memo</span>
-            <span className="font-bold text-white">
-              {activeReq.blockMemoNumber || 'MEMO-PENDING'}
+            <span className="text-white/50 block text-[10px] uppercase">Return Private No.</span>
+            <span className="font-bold text-sky-300 truncate block">
+              {activeReq.return_private_number || 'Pending'}
+            </span>
+            <span className="text-[9px] text-white/40 block">(Simulated)</span>
+          </div>
+          <div>
+            <span className="text-white/50 block text-[10px] uppercase">Track Fit Condition</span>
+            <span className={`font-bold ${hasActiveTsr ? 'text-orange-300' : 'text-railway-signalGreenLight'}`}>
+              {activeReq.operational_condition || (hasActiveTsr ? `TSR: ${activeReq.operationalRestriction?.speedKmph} km/h` : 'NORMAL (130 km/h)')}
             </span>
           </div>
         </div>

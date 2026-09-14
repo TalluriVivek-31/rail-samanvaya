@@ -270,7 +270,7 @@ export const RailwayNetworkSection: React.FC = () => {
               {/* Interactive Corridor Track Bar */}
               <div className="space-y-6">
                 <div className="flex items-center justify-between text-xs font-mono text-railway-textMuted">
-                  <span className="font-bold text-railway-textPrimary">BZA DIVISION MAIN CORRIDOR C1</span>
+                  <span className="font-bold text-railway-textPrimary">CONFIGURED PROTOTYPE CORRIDOR C1</span>
                   <span>DOUBLE ELECTRIFIED TRACK · BROAD GAUGE</span>
                 </div>
 

@@ -62,7 +62,7 @@ export const USERS: Record<UserRole, User> = {
   'COA / Operations': {
     id: 'u-3',
     name: 'P. Murthy',
-    designation: 'Chief Controller / Section Controller (BZA)',
+    designation: 'Chief Controller / Section Controller (Operations)',
     role: 'COA / Operations',
     employeeId: 'EMP-IR-210',
     department: 'Operations',
@@ -71,8 +71,8 @@ export const USERS: Record<UserRole, User> = {
   },
   'Section Controller': {
     id: 'u-3b',
-    name: 'Section Controller BZA',
-    designation: 'Section Train Controller (BZA Division)',
+    name: 'Section Controller',
+    designation: 'Section Train Controller (Operations)',
     role: 'Section Controller',
     employeeId: 'EMP-IR-211',
     department: 'Operations',
@@ -141,7 +141,272 @@ export const INITIAL_SECTIONS: SectionData[] = [
   }
 ];
 
-export const INITIAL_REQUESTS: BlockRequest[] = [];
+export const INITIAL_REQUESTS: BlockRequest[] = [
+  {
+    id: 'REQ-ENG-01',
+    block_request_id: 'REQ-ENG-01',
+    maintenance_requirement_id: 'MR-ENG-101',
+    department: 'P.Way',
+    engineer: 'A. K. Sharma',
+    creatorRole: 'P.Way Engineer',
+    section: 'SEC-A',
+    sectionId: 'SEC-A',
+    sectionCode: 'SEC-A',
+    sectionName: 'Vijayawada – Mangalagiri Trunk Section',
+    startLocation: 'KM 12/400',
+    endLocation: 'KM 13/100',
+    startKm: 12.4,
+    endKm: 13.1,
+    affectedLengthMeters: 700,
+    lineName: 'UP Main Line',
+    affectedTracks: ['UP Main'],
+    work: 'Track Tamping (Plain Track CSM Machine)',
+    workCategory: 'Track Tamping',
+    date: new Date().toISOString().split('T')[0],
+    preferredTime: '02:00',
+    preferredStartTime: '02:00',
+    preferredEndTime: '04:00',
+    duration: 120,
+    requested_start: '02:00',
+    requested_end: '04:00',
+    requested_duration: 120,
+    planned_duration: 120,
+    priority: 'HIGH',
+    priorityScore: 84,
+    risk: 'MEDIUM',
+    status: 'SUBMITTED',
+    reason: 'Periodic tamping and track geometry correction post-monsoon ballast packing.',
+    safetyRequirements: ['Safety Banner Flags at 600m & 1200m', 'Detonator protection on UP line', 'Traffic Block on UP Main'],
+    resourcesRequired: ['Track Machine TM-04 (CSM Tamping Express)', '12 P.Way Gang Staff', 'Ballast Regulating Kit'],
+    staff_required: 12,
+    machine_required: ['Track Machine TM-04'],
+    equipment_required: ['Track Jack', 'Optical Gauging Kit'],
+    materials_required: ['Ballast Clamps'],
+    resource_ids: ['TM-04', 'GANG-SEC-01'],
+    resources: {
+      staff_required: 12,
+      machine_required: ['Track Machine TM-04'],
+      equipment_required: ['Track Jack', 'Optical Gauging Kit'],
+      materials_required: ['Ballast Clamps'],
+      resource_ids: ['TM-04', 'GANG-SEC-01']
+    },
+    possessionBreakdown: {
+      mobilisation_duration: 15,
+      setup_duration: 15,
+      work_duration: 75,
+      clearance_duration: 10,
+      restoration_duration: 15,
+      total_required_duration: 130
+    },
+    mobilisation_duration: 15,
+    setup_duration: 15,
+    work_duration: 75,
+    clearance_duration: 10,
+    restoration_duration: 15,
+    total_required_duration: 130,
+    trafficBlockRequired: true,
+    powerBlockRequired: false,
+    sntDisconnectionRequired: false,
+    integratedBlockRequired: true,
+    adjacent_line_affected: false,
+    operational_restriction_required: false,
+    work_status: 'PENDING',
+    operational_condition: 'NORMAL',
+    restoration_status: 'NOT_REQUIRED',
+    responsible_officer: {
+      employee_id: 'EMP-IR-301',
+      name: 'A. K. Sharma',
+      role: 'Senior Section Engineer (P.Way)',
+      department: 'P.Way'
+    },
+    priorityBreakdown: {
+      criticality: 32,
+      urgency: 22,
+      risk: 18,
+      trafficImpact: 8,
+      resourceAvailability: 4,
+      score: 84,
+      explanation: 'Scheduled track tamping on heavy axle load corridor. Urgent before peak express traffic window.'
+    },
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'REQ-TRD-01',
+    block_request_id: 'REQ-TRD-01',
+    maintenance_requirement_id: 'MR-TRD-202',
+    department: 'TRD',
+    engineer: 'S. K. Nair',
+    creatorRole: 'TRD Engineer',
+    section: 'SEC-A',
+    sectionId: 'SEC-A',
+    sectionCode: 'SEC-A',
+    sectionName: 'Vijayawada – Mangalagiri Trunk Section',
+    startLocation: 'KM 12/700',
+    endLocation: 'KM 12/900',
+    startKm: 12.7,
+    endKm: 12.9,
+    affectedLengthMeters: 200,
+    lineName: 'UP Main Line',
+    affectedTracks: ['UP Main'],
+    work: 'OHE Bracket & Catenary Inspection',
+    workCategory: 'OHE Maintenance',
+    date: new Date().toISOString().split('T')[0],
+    preferredTime: '02:30',
+    preferredStartTime: '02:30',
+    preferredEndTime: '03:30',
+    duration: 60,
+    requested_start: '02:30',
+    requested_end: '03:30',
+    requested_duration: 60,
+    planned_duration: 60,
+    priority: 'HIGH',
+    priorityScore: 78,
+    risk: 'HIGH',
+    status: 'SUBMITTED',
+    reason: 'Cantilever assembly inspection and contact wire wear measurement on high-speed tangent track.',
+    safetyRequirements: ['25kV Traction Power Isolation', 'Discharge Rod Earthing on either side of work spot', 'Power Block on UP Catenary'],
+    resourcesRequired: ['Tower Wagon TW-02', '6 TRD Staff', 'Earthing Rod Set'],
+    staff_required: 6,
+    machine_required: ['Tower Wagon TW-02'],
+    equipment_required: ['Contact Wire Height Gauge', 'Discharge Rods'],
+    materials_required: ['Insulators', 'Dropper Wires'],
+    resource_ids: ['TW-02', 'TRD-SEC-01'],
+    resources: {
+      staff_required: 6,
+      machine_required: ['Tower Wagon TW-02'],
+      equipment_required: ['Contact Wire Height Gauge', 'Discharge Rods'],
+      materials_required: ['Insulators', 'Dropper Wires'],
+      resource_ids: ['TW-02', 'TRD-SEC-01']
+    },
+    possessionBreakdown: {
+      mobilisation_duration: 10,
+      setup_duration: 10,
+      work_duration: 30,
+      clearance_duration: 5,
+      restoration_duration: 5,
+      total_required_duration: 60
+    },
+    mobilisation_duration: 10,
+    setup_duration: 10,
+    work_duration: 30,
+    clearance_duration: 5,
+    restoration_duration: 5,
+    total_required_duration: 60,
+    trafficBlockRequired: false,
+    powerBlockRequired: true,
+    sntDisconnectionRequired: false,
+    integratedBlockRequired: true,
+    adjacent_line_affected: false,
+    operational_restriction_required: false,
+    work_status: 'PENDING',
+    operational_condition: 'NORMAL',
+    restoration_status: 'NOT_REQUIRED',
+    responsible_officer: {
+      employee_id: 'EMP-IR-503',
+      name: 'S. K. Nair',
+      role: 'Senior Section Engineer (TRD)',
+      department: 'TRD'
+    },
+    priorityBreakdown: {
+      criticality: 30,
+      urgency: 20,
+      risk: 18,
+      trafficImpact: 6,
+      resourceAvailability: 4,
+      score: 78,
+      explanation: 'Overhead electrification alignment check on trunk route. Coordinated shadow possession opportunity with P.Way.'
+    },
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'REQ-SNT-01',
+    block_request_id: 'REQ-SNT-01',
+    maintenance_requirement_id: 'MR-SNT-303',
+    department: 'S&T',
+    engineer: 'Rajesh Verma',
+    creatorRole: 'S&T Engineer',
+    section: 'SEC-A',
+    sectionId: 'SEC-A',
+    sectionCode: 'SEC-A',
+    sectionName: 'Vijayawada – Mangalagiri Trunk Section',
+    startLocation: 'KM 12/800',
+    endLocation: 'KM 13/000',
+    startKm: 12.8,
+    endKm: 13.0,
+    affectedLengthMeters: 200,
+    lineName: 'UP Main Line',
+    affectedTracks: ['UP Main'],
+    work: 'Track Circuit & Point Machine Inspection',
+    workCategory: 'Signal Testing',
+    date: new Date().toISOString().split('T')[0],
+    preferredTime: '02:45',
+    preferredStartTime: '02:45',
+    preferredEndTime: '03:30',
+    duration: 45,
+    requested_start: '02:45',
+    requested_end: '03:30',
+    requested_duration: 45,
+    planned_duration: 45,
+    priority: 'MEDIUM',
+    priorityScore: 72,
+    risk: 'MEDIUM',
+    status: 'SUBMITTED',
+    reason: 'Audio Frequency Track Circuit (AFTC) tuning and point machine obstruction testing.',
+    safetyRequirements: ['S&T Disconnection Memo (SI-01) issued to SM', 'Signal Interlocking Bypass Verification'],
+    resourcesRequired: ['4 S&T Signal Technicians', 'AFTC Tuning Kit', 'Point Test Gauge'],
+    staff_required: 4,
+    machine_required: [],
+    equipment_required: ['Digital Multimeter', 'Point Gauge', 'AFTC Calibrator'],
+    materials_required: ['Jumper Leads', 'Track Fuses'],
+    resource_ids: ['SNT-TEAM-01'],
+    resources: {
+      staff_required: 4,
+      machine_required: [],
+      equipment_required: ['Digital Multimeter', 'Point Gauge', 'AFTC Calibrator'],
+      materials_required: ['Jumper Leads', 'Track Fuses'],
+      resource_ids: ['SNT-TEAM-01']
+    },
+    possessionBreakdown: {
+      mobilisation_duration: 5,
+      setup_duration: 5,
+      work_duration: 25,
+      clearance_duration: 5,
+      restoration_duration: 5,
+      total_required_duration: 45
+    },
+    mobilisation_duration: 5,
+    setup_duration: 5,
+    work_duration: 25,
+    clearance_duration: 5,
+    restoration_duration: 5,
+    total_required_duration: 45,
+    trafficBlockRequired: false,
+    powerBlockRequired: false,
+    sntDisconnectionRequired: true,
+    integratedBlockRequired: true,
+    adjacent_line_affected: false,
+    operational_restriction_required: false,
+    work_status: 'PENDING',
+    operational_condition: 'NORMAL',
+    restoration_status: 'NOT_REQUIRED',
+    responsible_officer: {
+      employee_id: 'EMP-IR-402',
+      name: 'Rajesh Verma',
+      role: 'Senior Section Engineer (Signal)',
+      department: 'S&T'
+    },
+    priorityBreakdown: {
+      criticality: 28,
+      urgency: 18,
+      risk: 16,
+      trafficImpact: 6,
+      resourceAvailability: 4,
+      score: 72,
+      explanation: 'Signal disconnection coordination with track tamping to avoid false track occupancy alerts.'
+    },
+    createdAt: new Date().toISOString()
+  }
+];
 
 export const INITIAL_EXECUTION_STEPS: ExecutionStep[] = [
   {
@@ -195,7 +460,7 @@ export const INITIAL_CONVERSATIONS: ChatConversation[] = [
     id: 'conv-planning-desk',
     title: 'Planning Office Desk',
     type: 'PLANNING_OFFICE_QUERY',
-    corridor: 'Vijayawada Division (BZA)',
+    corridor: 'Indian Railways Network',
     topicOrIssue: 'Preferred Window & Scheduling Queries',
     participants: [
       { name: 'M. K. Rao', role: 'Planning Officer', department: 'Operations' },
@@ -223,11 +488,11 @@ export const INITIAL_CONVERSATIONS: ChatConversation[] = [
     id: 'conv-control-desk',
     title: 'Control Office Desk',
     type: 'CONTROL_OFFICE_QUERY',
-    corridor: 'Vijayawada Division (BZA Control)',
+    corridor: 'Indian Railways Operations Control',
     topicOrIssue: 'Train Movement & Headway Queries',
     participants: [
       { name: 'P. Murthy', role: 'COA / Operations', department: 'Operations' },
-      { name: 'Section Controller BZA', role: 'Section Controller', department: 'Operations' }
+      { name: 'Section Controller', role: 'Section Controller', department: 'Operations' }
     ],
     unreadCount: 0,
     createdAt: '2026-09-11 08:00 IST',
@@ -236,11 +501,11 @@ export const INITIAL_CONVERSATIONS: ChatConversation[] = [
         id: 'msg-ctrl-01',
         conversationId: 'conv-control-desk',
         senderId: 'sys',
-        senderName: 'Divisional Train Control Desk',
+        senderName: 'Train Control Desk',
         senderRole: 'Section Controller',
         senderDepartment: 'Operations',
         topicOrIssue: 'Operational Channel Initialized',
-        text: 'Divisional Train Control active. Submit operational queries regarding train headway conflicts, speed restrictions, and dynamic rescheduling.',
+        text: 'Train Control active. Submit operational queries regarding train headway conflicts, speed restrictions, and dynamic rescheduling.',
         timestamp: '08:00 IST',
         isSystemMessage: true,
         systemMessageType: 'SAFETY_NOTICE'
@@ -255,7 +520,7 @@ export const INITIAL_CONVERSATIONS: ChatConversation[] = [
     requestId: 'REQ-PWAY-001',
     sectionId: 'SEC-A',
     kmRange: 'KM 12/400 – 13/100',
-    corridor: 'Vijayawada – Guntur – Tenali',
+    corridor: 'Configured Prototype Corridor (BZA–GNT–TEL)',
     locationDisplay: 'KM 12/400 – 13/100 · UP Main · Mangalagiri (MAG)',
     timeWindow: '02:10 – 04:10 IST (120m)',
     statusDisplay: 'Scheduled',
@@ -1427,7 +1692,7 @@ export function useSamnvayStore() {
         blockId: req.blockMemoNumber || req.id,
         requestId: req.id,
         sectionId: req.section,
-        corridor: 'Vijayawada – Guntur – Tenali',
+        corridor: 'Configured Prototype Corridor (BZA–GNT–TEL)',
         locationDisplay: `${req.startLocation} – ${req.endLocation} · ${req.affectedTracks?.join(', ') || 'UP Main'} · ${req.stationName || 'Station'} (${req.stationCode || 'MAG'})`,
         timeWindow: req.allocatedWindow ? `${req.allocatedWindow.startTime} – ${req.allocatedWindow.endTime} IST` : req.preferredTime ? `${req.preferredTime} IST` : 'Unassigned',
         statusDisplay: req.status,
@@ -1601,11 +1866,23 @@ export function useSamnvayStore() {
       ? globalState.requests.find(r => r.id === targetRequestId)
       : globalState.requests.find(r => 
           r.status === 'Scheduled' || 
+          r.status === 'SCHEDULED' ||
           r.status === 'Block Started' || 
+          r.status === 'IMPOSED' ||
+          r.status === 'WORK_STARTED' ||
           r.status === 'Work in Progress' || 
+          r.status === 'WORK_IN_PROGRESS' ||
+          r.status === 'BLOCK_WINDOW_ENDING' ||
+          r.status === 'COMPLETION_REPORT_REQUIRED' ||
           r.status === 'Work Completed' || 
+          r.status === 'COMPLETED' ||
+          r.status === 'PARTIALLY_COMPLETED' ||
           r.status === 'Inspection/Safety Verification' || 
           r.status === 'Block Release Requested' || 
+          r.status === 'BLOCK_RETURNED' ||
+          r.status === 'RESTORATION_PENDING' ||
+          r.status === 'RESTRICTED' ||
+          r.status === 'NORMAL_RESTORED' ||
           r.status === 'Block Released' || 
           r.status === 'Block Window Allocated' ||
           r.status === 'Approved' ||
@@ -1916,7 +2193,21 @@ export function useSamnvayStore() {
       return ds;
     });
 
-    const targetStatus: BlockStatus = 'Work Completed';
+    // Multi-Department Coordinated Work Status Resolution (Section 14 of specification)
+    // If ANY participating department is PARTIAL or NOT COMPLETED, the coordinated block status resolves to PARTIALLY_COMPLETED
+    const anyDeptPartial = updatedDeptStatuses.some(d => d.status === 'PARTIALLY_COMPLETED');
+    const anyDeptIncomplete = updatedDeptStatuses.some(d => (d.status as string) === 'WORK_NOT_COMPLETED' || (d.status as string) === 'NOT_COMPLETED');
+    
+    let targetStatus: BlockStatus = 'COMPLETED';
+    if (reportData.status === 'PARTIALLY_COMPLETED' || anyDeptPartial || anyDeptIncomplete) {
+      targetStatus = 'PARTIALLY_COMPLETED';
+    } else if (reportData.status === 'WORK_NOT_COMPLETED') {
+      targetStatus = 'NOT_COMPLETED';
+    }
+
+    const resolvedWorkStatus: 'COMPLETED' | 'PARTIALLY_COMPLETED' | 'NOT_COMPLETED' = 
+      (targetStatus === 'COMPLETED') ? 'COMPLETED' : (targetStatus === 'NOT_COMPLETED' ? 'NOT_COMPLETED' : 'PARTIALLY_COMPLETED');
+
     const updatedHistory: StatusHistoryEntry[] = [
       ...(req.statusHistory || []),
       {
@@ -1924,7 +2215,7 @@ export function useSamnvayStore() {
         timestamp: timeNow,
         actor: globalState.currentUser.name,
         role: globalState.currentUser.role,
-        remarks: `Completion Report Submitted: ${reportData.status} (Variance: ${variance >= 0 ? '+' : ''}${variance}m). ${reportData.incompletionReasonCategory ? `Reason: ${reportData.incompletionReasonCategory}. ` : ''}${reportData.workAccomplishedSummary}`
+        remarks: `Completion Report Submitted: ${targetStatus} (Variance: ${variance >= 0 ? '+' : ''}${variance}m). ${reportData.incompletionReasonCategory ? `Reason: ${reportData.incompletionReasonCategory}. ` : ''}${reportData.workAccomplishedSummary}`
       }
     ];
 
@@ -1937,16 +2228,19 @@ export function useSamnvayStore() {
     }
 
     let chainedContinuationId: string | undefined;
-    let updatedRequests = globalState.requests.map(r => {
+    let updatedRequests: BlockRequest[] = globalState.requests.map(r => {
       if (r.id === requestId) {
         return {
           ...r,
           status: targetStatus,
+          work_status: resolvedWorkStatus,
           completionReport: report,
           actual_work_completion: actualWorkComp,
           actual_duration: actualDuration,
           duration_variance: variance,
           infrastructureCondition: condition,
+          operational_condition: (condition === 'RESTORATION_PENDING' ? 'RESTORATION_PENDING' : 'RESTRICTED') as InfrastructureCondition,
+          restoration_status: 'PENDING' as const,
           isOverdueCompletionReport: false,
           completionReportStatus: 'SUBMITTED' as const,
           departmentExecutionStatuses: updatedDeptStatuses,
@@ -1956,18 +2250,26 @@ export function useSamnvayStore() {
       return r;
     });
 
-    if (reportData.continuationRequired) {
+    if (reportData.continuationRequired || targetStatus === 'PARTIALLY_COMPLETED') {
       chainedContinuationId = `BR-${1020 + updatedRequests.length + 1}`;
       const contDuration = reportData.continuationRequestedDurationMinutes || Math.max(30, plannedDuration - actualDuration);
       const remWork = reportData.remainingWork || (remainingStartKm && remainingEndKm ? `Remaining track work KM ${remainingStartKm} to ${remainingEndKm}` : 'Remaining track work');
       const continuationReq: BlockRequest = {
         id: chainedContinuationId,
+        block_request_id: chainedContinuationId,
         continuationOfBlockId: requestId,
-        parentRequirementId: requestId,
+        parentRequirementId: req.maintenance_requirement_id || requestId,
+        original_maintenance_requirement_id: req.maintenance_requirement_id || requestId,
+        original_block_request_id: req.block_request_id || requestId,
+        original_block_plan_id: req.blockMemoNumber || requestId,
+        previous_execution_id: req.blockMemoNumber || requestId,
         department: req.department,
         engineer: globalState.currentUser.name,
         creatorRole: globalState.currentUser.role,
         section: req.section,
+        sectionId: req.sectionId,
+        sectionCode: req.sectionCode,
+        sectionName: req.sectionName,
         startLocation: reportData.remainingLocationKm || (typeof remainingStartKm === 'number' ? `KM ${remainingStartKm}` : req.startLocation),
         endLocation: typeof remainingEndKm === 'number' ? `KM ${remainingEndKm}` : req.endLocation,
         startKm: remainingStartKm ?? req.startKm,
@@ -1976,11 +2278,16 @@ export function useSamnvayStore() {
         workCategory: req.workCategory,
         date: req.date,
         preferredTime: '02:00',
+        requested_start: '02:00',
         duration: contDuration,
+        requested_duration: contDuration,
         planned_duration: contDuration,
         priority: req.priority,
         risk: req.risk,
-        status: 'Submitted',
+        status: 'SUBMITTED',
+        work_status: 'PENDING',
+        operational_condition: 'NORMAL',
+        restoration_status: 'NOT_REQUIRED',
         isAutoGranted: false,
         reason: `Continuation of incomplete work from ${requestId}. Incompletion reason: ${reportData.incompletionReasonCategory || 'Time expired'}. Remaining: ${remWork}`,
         safetyRequirements: req.safetyRequirements || [],
@@ -2385,16 +2692,21 @@ export function useSamnvayStore() {
       authorized: true
     };
 
-    const updatedRequests = globalState.requests.map(r => {
+    const updatedRequests: BlockRequest[] = globalState.requests.map(r => {
       if (r.id === requestId) {
+        const isRestoredNormal = newCondition === 'NORMAL' || newCondition === 'NORMAL_RESTORED';
+        const finalStatus: BlockStatus = isRestoredNormal ? 'NORMAL_RESTORED' : 'RESTRICTED';
         return {
           ...r,
+          status: (r.status === 'Closed' || r.status === 'CLOSED') ? r.status : finalStatus,
+          operational_condition: (isRestoredNormal ? 'NORMAL_RESTORED' : 'RESTRICTED') as InfrastructureCondition,
+          restoration_status: 'VERIFIED_RESTORED' as const,
           infrastructureCondition: newCondition,
           restorationRecord,
           statusHistory: [
             ...(r.statusHistory || []),
             {
-              status: r.status,
+              status: finalStatus,
               timestamp: timeNow,
               actor: globalState.currentUser.name,
               role: globalState.currentUser.role,
@@ -2411,6 +2723,266 @@ export function useSamnvayStore() {
     logAudit('RESTORATION_RECORDED', requestId, newCondition, `Infrastructure condition updated to ${newCondition}. Remarks: ${verificationRemarks}`);
     setNotification(`Infrastructure condition for ${requestId} formally recorded as ${newCondition}.`, 'success');
     return { success: true, restorationRecord };
+  }, [logAudit, setNotification]);
+
+  // SUBMIT DEPARTMENTAL APPROVAL (Technical Verification Gate)
+  const submitDepartmentApproval = useCallback((requestId: string, remarks?: string) => {
+    const req = globalState.requests.find(r => r.id === requestId);
+    if (!req) return { success: false, message: 'Request not found' };
+
+    const currentRole = globalState.currentUser.role;
+    const currentActor = globalState.currentUser.name;
+
+    // Self-approval check: creator cannot approve own request (unless MASTER)
+    const isSameUser = req.engineer?.toLowerCase().trim() === currentActor.toLowerCase().trim();
+    if (isSameUser && currentRole !== 'MASTER') {
+      const msg = 'Forbidden: The request creator is not permitted to approve their own request under Railway Operating Safety Rules.';
+      setNotification(msg, 'error');
+      return { success: false, message: msg };
+    }
+
+    const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) + ' IST';
+    const updatedHistory: StatusHistoryEntry[] = [
+      ...(req.statusHistory || []),
+      {
+        status: 'DEPARTMENT_APPROVED',
+        timestamp: timeNow,
+        actor: currentActor,
+        role: currentRole,
+        remarks: remarks || `Departmental Technical Verification approved by ${currentActor} (${currentRole}).`
+      }
+    ];
+
+    const updatedRequests = globalState.requests.map(r => r.id === requestId ? {
+      ...r,
+      status: 'DEPARTMENT_APPROVED' as BlockStatus,
+      statusHistory: updatedHistory
+    } : r);
+
+    globalState = { ...globalState, requests: updatedRequests };
+    notify();
+    logAudit('Department Approval Granted', requestId, 'DEPARTMENT_APPROVED', `Technical concurrence granted by ${currentActor} (${currentRole}).`);
+    setNotification(`Requisition ${requestId} departmental approval completed. Moved to Planning Queue.`, 'success');
+    return { success: true };
+  }, [logAudit, setNotification]);
+
+  // SUBMIT PLAN APPROVAL (Planning Officer Concurrence -> Requisition Generated)
+  const submitPlanApproval = useCallback((requestId: string, remarks?: string) => {
+    const req = globalState.requests.find(r => r.id === requestId);
+    if (!req) return { success: false, message: 'Request not found' };
+
+    const currentRole = globalState.currentUser.role;
+    const currentActor = globalState.currentUser.name;
+
+    if (currentRole !== 'Planning Officer' && currentRole !== 'MASTER' && currentRole !== 'COA / Operations') {
+      const msg = 'Forbidden: Only Planning Officer or Operating Control Authority can approve planning recommendations.';
+      setNotification(msg, 'error');
+      return { success: false, message: msg };
+    }
+
+    const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) + ' IST';
+    const updatedHistory: StatusHistoryEntry[] = [
+      ...(req.statusHistory || []),
+      {
+        status: 'PLAN_APPROVED',
+        timestamp: timeNow,
+        actor: currentActor,
+        role: currentRole,
+        remarks: remarks || `Candidate planning window approved by ${currentActor} (${currentRole}). Formal Block Requisition generated.`
+      }
+    ];
+
+    const updatedRequests = globalState.requests.map(r => r.id === requestId ? {
+      ...r,
+      status: 'PLAN_APPROVED' as BlockStatus,
+      statusHistory: updatedHistory
+    } : r);
+
+    globalState = { ...globalState, requests: updatedRequests };
+    notify();
+    logAudit('Plan Approved', requestId, 'PLAN_APPROVED', `Planning recommendation approved by ${currentActor} (${currentRole}). Requisition ready for Operating Authorization.`);
+    setNotification(`Plan for ${requestId} approved. Requisition queued for Operating Control Authorization.`, 'success');
+    return { success: true };
+  }, [logAudit, setNotification]);
+
+  // IMPOSE OPERATIONAL BLOCK (Section Controller Execution)
+  const imposeBlock = useCallback((requestId: string, permitPrivateNumber?: string, remarks?: string) => {
+    const req = globalState.requests.find(r => r.id === requestId);
+    if (!req) return { success: false, message: 'Request not found' };
+
+    const currentRole = globalState.currentUser.role;
+    const currentActor = globalState.currentUser.name;
+
+    const isOperatingControl = currentRole === 'COA / Operations' || currentRole === 'Section Controller' || currentRole === 'MASTER';
+    if (!isOperatingControl) {
+      const msg = `Forbidden: Only Section Controller / Operating Control can impose blocks. Role '${currentRole}' is unauthorized.`;
+      setNotification(msg, 'error');
+      return { success: false, message: msg };
+    }
+
+    const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) + ' IST';
+    const pn = permitPrivateNumber || `SIM-PN-GR-${Math.floor(1000 + Math.random() * 9000)}`;
+    const memoNum = req.blockMemoNumber || `MEMO-BZA-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const updatedHistory: StatusHistoryEntry[] = [
+      ...(req.statusHistory || []),
+      {
+        status: 'WORK_STARTED',
+        timestamp: timeNow,
+        actor: currentActor,
+        role: currentRole,
+        remarks: remarks || `Block Imposed by Section Controller. Simulated Private Number: ${pn}. Track possession commenced.`
+      }
+    ];
+
+    let steps = [...globalState.executionSteps];
+    steps[0].status = 'COMPLETED';
+    steps[1].status = 'COMPLETED';
+    steps[1].timestamp = timeNow;
+    steps[1].confirmedBy = `${currentActor} (${currentRole})`;
+    steps[2].status = 'COMPLETED';
+    steps[3].status = 'IN_PROGRESS';
+    steps[3].timestamp = timeNow;
+    steps[3].confirmedBy = `${currentActor} (${currentRole})`;
+
+    const updatedRequests = globalState.requests.map(r => r.id === requestId ? {
+      ...r,
+      status: 'WORK_STARTED' as BlockStatus,
+      work_status: 'IN_PROGRESS' as const,
+      actual_imposition_time: timeNow,
+      actual_start: timeNow,
+      permit_to_work_time: timeNow,
+      permit_to_work_private_number: pn,
+      isSimulatedPrivateNumber: true,
+      blockMemoNumber: memoNum,
+      statusHistory: updatedHistory
+    } : r);
+
+    globalState = {
+      ...globalState,
+      requests: updatedRequests,
+      executionSteps: steps
+    };
+    notify();
+    logAudit('Block Imposed & Work Started', requestId, 'WORK_STARTED', `Operational possession imposed under simulated Private Number ${pn}. Work started.`);
+    setNotification(`Block ${requestId} IMPOSED (Work Started). Simulated Private Number: ${pn}.`, 'success');
+    return { success: true, permitPrivateNumber: pn };
+  }, [logAudit, setNotification]);
+
+  // RETURN BLOCK TO OPERATING CONTROL
+  const returnBlock = useCallback((requestId: string, returnPrivateNumber?: string, remarks?: string) => {
+    const req = globalState.requests.find(r => r.id === requestId);
+    if (!req) return { success: false, message: 'Request not found' };
+
+    const currentRole = globalState.currentUser.role;
+    const currentActor = globalState.currentUser.name;
+
+    const isOperatingControl = currentRole === 'COA / Operations' || currentRole === 'Section Controller' || currentRole === 'MASTER';
+    if (!isOperatingControl) {
+      const msg = `Forbidden: Only Section Controller / Operating Control can authorize Block Return. Role '${currentRole}' is unauthorized.`;
+      setNotification(msg, 'error');
+      return { success: false, message: msg };
+    }
+
+    // Multi-department release gate
+    if (req.departmentExecutionStatuses && req.departmentExecutionStatuses.length > 0) {
+      const pendingDept = req.departmentExecutionStatuses.find(d => d.status !== 'COMPLETED' && d.status !== 'PARTIALLY_COMPLETED');
+      if (pendingDept) {
+        const msg = `Cannot return block: Department '${pendingDept.department}' execution status is '${pendingDept.status}'. All participating departments must complete/sign off work.`;
+        setNotification(msg, 'error');
+        return { success: false, message: msg };
+      }
+    }
+
+    const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) + ' IST';
+    const pn = returnPrivateNumber || `SIM-PN-RET-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const plannedDur = req.planned_duration || req.duration || 60;
+    const actualDur = req.actual_duration || plannedDur;
+    const variance = actualDur - plannedDur;
+
+    const updatedHistory: StatusHistoryEntry[] = [
+      ...(req.statusHistory || []),
+      {
+        status: 'BLOCK_RETURNED',
+        timestamp: timeNow,
+        actor: currentActor,
+        role: currentRole,
+        remarks: remarks || `Block returned to Operating Control. Simulated Return Private Number: ${pn}. Infrastructure Condition: RESTORATION_PENDING.`
+      }
+    ];
+
+    let steps = [...globalState.executionSteps];
+    if (steps[4]?.status === 'IN_PROGRESS') {
+      steps[4].status = 'COMPLETED';
+    }
+    steps[5].status = 'COMPLETED';
+    steps[5].timestamp = timeNow;
+    steps[5].confirmedBy = `${currentActor} (${currentRole})`;
+
+    const updatedRequests = globalState.requests.map(r => r.id === requestId ? {
+      ...r,
+      status: 'BLOCK_RETURNED' as BlockStatus,
+      actual_return_time: timeNow,
+      actual_end: timeNow,
+      return_time: timeNow,
+      return_private_number: pn,
+      isSimulatedPrivateNumber: true,
+      actual_duration: actualDur,
+      duration_variance: variance,
+      operational_condition: (r.operational_condition === 'RESTRICTED' ? 'RESTRICTED' : 'RESTORATION_PENDING') as InfrastructureCondition,
+      restoration_status: 'PENDING' as const,
+      statusHistory: updatedHistory
+    } : r);
+
+    globalState = {
+      ...globalState,
+      requests: updatedRequests,
+      executionSteps: steps
+    };
+    notify();
+    logAudit('Block Returned', requestId, 'BLOCK_RETURNED', `Track possession returned under simulated Return Private Number ${pn}. Restoration pending.`);
+    setNotification(`Block ${requestId} successfully RETURNED. Simulated Private Number: ${pn}. Restoration Pending.`, 'success');
+    return { success: true, returnPrivateNumber: pn };
+  }, [logAudit, setNotification]);
+
+  // RESTORE INFRASTRUCTURE CONDITION
+  const restoreInfrastructure = useCallback((
+    requestId: string,
+    newCondition: InfrastructureCondition,
+    verificationRemarks: string
+  ) => {
+    return recordRestoration(requestId, newCondition, verificationRemarks);
+  }, [recordRestoration]);
+
+  // CLOSE MAINTENANCE BLOCK (Final Archival)
+  const closeBlock = useCallback((requestId: string, remarks?: string) => {
+    const req = globalState.requests.find(r => r.id === requestId);
+    if (!req) return { success: false, message: 'Request not found' };
+
+    const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) + ' IST';
+    const updatedHistory: StatusHistoryEntry[] = [
+      ...(req.statusHistory || []),
+      {
+        status: 'CLOSED',
+        timestamp: timeNow,
+        actor: globalState.currentUser.name,
+        role: globalState.currentUser.role,
+        remarks: remarks || `Maintenance block and operational record officially CLOSED in master operating ledger.`
+      }
+    ];
+
+    const updatedRequests = globalState.requests.map(r => r.id === requestId ? {
+      ...r,
+      status: 'CLOSED' as BlockStatus,
+      statusHistory: updatedHistory
+    } : r);
+
+    globalState = { ...globalState, requests: updatedRequests };
+    notify();
+    logAudit('Block Closed', requestId, 'CLOSED', `Requisition ${requestId} finalized and closed in master archive.`);
+    setNotification(`Block ${requestId} officially CLOSED.`, 'success');
+    return { success: true };
   }, [logAudit, setNotification]);
 
   // MANUAL PLANNING OVERRIDE (Section 21 of specification)
@@ -2838,7 +3410,16 @@ export function useSamnvayStore() {
       if (r.id === requestId) {
         return {
           ...r,
-          status: 'Scheduled' as BlockStatus,
+          status: 'SCHEDULED' as BlockStatus,
+          authorized_start: effectiveWindow.startTime,
+          authorized_end: effectiveWindow.endTime,
+          authorized_duration: r.planned_duration || r.duration,
+          planned_start: r.planned_start || effectiveWindow.startTime,
+          planned_end: r.planned_end || effectiveWindow.endTime,
+          planned_duration: r.planned_duration || r.duration,
+          requested_start: r.requested_start || r.preferredTime || '02:00',
+          requested_end: r.requested_end || '04:00',
+          requested_duration: r.requested_duration || r.duration,
           blockMemoNumber: memoNum,
           allocatedWindow: effectiveWindow,
           statusHistory: [...(r.statusHistory || []), newHistoryEntry]
@@ -3189,6 +3770,12 @@ export function useSamnvayStore() {
     createChatConversation,
     acceptConflictRecommendation,
     advanceExecutionStep,
+    submitDepartmentApproval,
+    submitPlanApproval,
+    imposeBlock,
+    returnBlock,
+    restoreInfrastructure,
+    closeBlock,
     submitCompletionReport,
     requestContinuationBlock,
     recordOperationalRestriction,

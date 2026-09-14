@@ -239,6 +239,13 @@ export function normalizeTrainData(raw: any, trainNumber: string, expectedDate?:
     expectedArrival: expArrival,
     currentKm: distanceTravelled,
     distanceTravelledKm: distanceTravelled,
+    latitude: (typeof t.latitude === 'number' && !isNaN(t.latitude)) ? t.latitude : 
+              (typeof t.currentLocation?.latitude === 'number' && !isNaN(t.currentLocation.latitude)) ? t.currentLocation.latitude :
+              (typeof t.lat === 'number' && !isNaN(t.lat)) ? t.lat : undefined,
+    longitude: (typeof t.longitude === 'number' && !isNaN(t.longitude)) ? t.longitude : 
+               (typeof t.currentLocation?.longitude === 'number' && !isNaN(t.currentLocation.longitude)) ? t.currentLocation.longitude :
+               (typeof t.lng === 'number' && !isNaN(t.lng)) ? t.lng :
+               (typeof t.lon === 'number' && !isNaN(t.lon)) ? t.lon : undefined,
     speedKmph: speed,
     platform: (t.platform ? Number(t.platform) : null) || (targetNext?.platform ? Number(targetNext.platform) : null),
     status: String(t.status || t.currentLocation?.status || 'RUNNING').toUpperCase(),

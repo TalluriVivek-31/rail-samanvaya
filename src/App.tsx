@@ -18,6 +18,7 @@ import {
 } from './pages';
 import { CreateRequestModal, SectionDetailDrawer } from './components/modals';
 import { RailwayChatDrawer } from './components/chat';
+import { DigitalTwin3D } from './components/twin';
 import { useSamnvayStore } from './store/useSamnvayStore';
 import { initFirebaseSync } from './services/firebaseSync';
 import { Train } from 'lucide-react';
@@ -38,7 +39,7 @@ export const App: React.FC = () => {
     const handleHash = () => {
       const hash = window.location.hash.replace('#', '') as SamnvayPage;
       const validPages: SamnvayPage[] = [
-        'overview', 'live-trains', 'requests', 
+        'overview', 'live-trains', 'twin', 'requests', 
         'approval', 'planning', 'conflict', 'execution', 'communication', 'audit'
       ];
       if (validPages.includes(hash)) {
@@ -84,7 +85,10 @@ export const App: React.FC = () => {
 
   // 3. Authenticated RBAC Route Protection Guard
   const userPerms = state.currentUser.permissions || ['overview'];
-  const isPermitted = (page: SamnvayPage) => userPerms.includes('all') || userPerms.includes(page);
+  const isPermitted = (page: SamnvayPage) => 
+    userPerms.includes('all') || 
+    userPerms.includes(page) || 
+    (page === 'twin' && (userPerms.includes('live-trains') || userPerms.includes('overview') || userPerms.includes('planning')));
   const activePage: SamnvayPage = isPermitted(currentPage) ? currentPage : 'overview';
 
   const handleOpenSectionDrawer = (sectionId: string) => {
@@ -126,6 +130,12 @@ export const App: React.FC = () => {
 
             {activePage === 'live-trains' && (
               <LiveTrainsPage />
+            )}
+
+            {activePage === 'twin' && (
+              <DigitalTwin3D 
+                onOpenSectionDrawer={handleOpenSectionDrawer}
+              />
             )}
 
             {activePage === 'requests' && (
@@ -178,7 +188,7 @@ export const App: React.FC = () => {
         <div className="flex items-center space-x-3">
           <span className="text-railway-forest font-bold">RAIL SAMANVAYA</span>
           <span>•</span>
-          <span>SOUTH CENTRAL RAILWAY · VIJAYAWADA DIVISION</span>
+          <span>INDIAN RAILWAYS · NATIONAL NETWORK</span>
           <span>•</span>
           <span className="text-emerald-700 font-bold">SECURE OPERATIONAL SESSION</span>
         </div>

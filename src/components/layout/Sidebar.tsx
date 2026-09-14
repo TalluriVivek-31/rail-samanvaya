@@ -60,6 +60,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
       badge: state.liveData.liveTrains.length > 0 ? state.liveData.liveTrains.length : undefined,
     },
     {
+      id: 'twin',
+      label: 'Digital Twin',
+      icon: Layers,
+    },
+    {
       id: 'requests',
       label: 'Requirements',
       icon: Inbox,
@@ -67,19 +72,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
     },
     {
       id: 'approval',
-      label: 'Approval Queue',
+      label: 'Approvals',
       icon: CheckSquare,
       badge: pendingRequestsCount > 0 ? pendingRequestsCount : undefined,
       badgeAlert: pendingRequestsCount > 0,
     },
     {
       id: 'planning',
-      label: 'Planning Engine',
+      label: 'Planning',
       icon: Calendar,
     },
     {
       id: 'conflict',
-      label: 'Conflict Monitor',
+      label: 'Conflicts',
       icon: AlertTriangle,
       badge: activeConflictsCount > 0 ? activeConflictsCount : undefined,
       badgeAlert: activeConflictsCount > 0,
@@ -98,7 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
     },
     {
       id: 'audit',
-      label: 'Audit Trail',
+      label: 'Audit',
       icon: History,
       badge: state.auditLogs.length,
     },
@@ -106,7 +111,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
 
   // Role-Based Navigation Filtering based on authenticated backend permissions
   const userPerms = state.currentUser.permissions || ['overview'];
-  const hasPermission = (id: SamnvayPage) => userPerms.includes('all') || userPerms.includes(id);
+  const hasPermission = (id: SamnvayPage) => 
+    userPerms.includes('all') || 
+    userPerms.includes(id) || 
+    (id === 'twin' && (userPerms.includes('live-trains') || userPerms.includes('overview') || userPerms.includes('planning')));
   const navItems = allNavItems.filter(item => hasPermission(item.id));
 
   return (
@@ -156,11 +164,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
       <div className="px-4 pt-4 border-t border-railway-border space-y-2 text-[11px] font-mono text-railway-textSecondary">
         <div className="flex items-center space-x-1.5 text-emerald-800">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-          <span className="font-bold text-[10px] uppercase">G&SR Authorized</span>
+          <span className="font-bold text-[10px] uppercase">G&SR-INFORMED PLANNING</span>
         </div>
         <div className="p-2.5 rounded-xl bg-railway-canvas border border-railway-border">
           <div className="font-bold text-railway-textPrimary truncate">{state.currentUser.name}</div>
-          <div className="text-[10px] text-railway-textMuted truncate">{state.currentUser.role}</div>
+          <div className="text-[10px] text-railway-textMuted truncate">
+            {state.currentUser.role === 'MASTER' ? 'DEMO USER | MASTER' : state.currentUser.role}
+          </div>
           <div className="text-[9px] text-neutral-400 mt-0.5">{state.currentUser.employeeId}</div>
         </div>
       </div>

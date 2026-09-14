@@ -1,7 +1,7 @@
 // scratch/test_railradar_delay_and_telemetry_pipeline.ts
 // Comprehensive Regression Suite for RailRadar Delay Data Pipeline & Invariants
 
-import { formatDelay } from 'c:/Users/tallu/OneDrive/Documents/SIH-RAILWAY/rail-samanvaya-main/rail-samanvaya-main/src/utils/dateTime.ts';
+import { formatDelay } from '../src/utils/dateTime.ts';
 
 interface TestCase {
   name: string;

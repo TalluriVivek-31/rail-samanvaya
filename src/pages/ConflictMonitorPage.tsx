@@ -64,11 +64,11 @@ export const ConflictMonitorPage: React.FC<ConflictMonitorPageProps> = ({ onNavi
               <AlertTriangle className="w-4 h-4" />
             </div>
             <h1 className="text-3xl font-bold tracking-tight text-railway-textPrimary font-sans">
-              Operational Conflict Monitor
+              Conflict Monitor
             </h1>
           </div>
           <p className="text-sm text-railway-textSecondary mt-1">
-            Real-time screening of train movements, sectional headway margins, and multi-department joint possession opportunities.
+            Section Headway & Corridor Conflict Screening
           </p>
         </div>
 
@@ -98,7 +98,7 @@ export const ConflictMonitorPage: React.FC<ConflictMonitorPageProps> = ({ onNavi
           </span>
           <span className="text-neutral-300 hidden md:inline">|</span>
           <span className="text-neutral-500 text-[11px] hidden md:inline">
-            Telemetry: RailRadar™ (Prototype Live Movement Feed — Non-Authoritative) · Infra: Infrastructure Master / OpenRailwayMap
+            Telemetry: RailRadar (Advisory) · Infra: Master GIS
           </span>
         </div>
 
@@ -128,7 +128,7 @@ export const ConflictMonitorPage: React.FC<ConflictMonitorPageProps> = ({ onNavi
             </span>
           </div>
           <p className="text-[11px] text-neutral-600 font-sans mt-1">
-            Train or operational movement prevents the proposed work window.
+            Train or timetable path collision within safety buffer.
           </p>
         </div>
 
@@ -143,7 +143,7 @@ export const ConflictMonitorPage: React.FC<ConflictMonitorPageProps> = ({ onNavi
             </span>
           </div>
           <p className="text-[11px] text-neutral-600 font-sans mt-1">
-            Compatible departments (P.Way + TRD + S&T) can safely coordinate work.
+            Overlapping work zones eligible for single possession.
           </p>
         </div>
 
@@ -158,7 +158,7 @@ export const ConflictMonitorPage: React.FC<ConflictMonitorPageProps> = ({ onNavi
             </span>
           </div>
           <p className="text-[11px] text-neutral-600 font-sans mt-1">
-            Independent tracks or valid time windows with zero headway collision.
+            Zero projected timetable or headway violations.
           </p>
         </div>
       </div>

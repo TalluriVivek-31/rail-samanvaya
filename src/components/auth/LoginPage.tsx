@@ -83,7 +83,7 @@ export const LoginPage: React.FC = () => {
           <div className="flex items-center space-x-3">
             <span className="w-8 h-[2px] bg-white/70 rounded-full inline-block" />
             <span className="text-[11px] uppercase tracking-[0.25em] text-white/90 font-semibold font-sans">
-              SOUTH CENTRAL RAILWAY · BZA DIVISION
+              INDIAN RAILWAYS · OPERATIONS CONTROL
             </span>
           </div>
 
@@ -355,7 +355,7 @@ export const LoginPage: React.FC = () => {
                 className="p-2.5 rounded-lg border border-[#e5e7eb] hover:border-[#2d9b88] hover:bg-[#2d9b88]/5 transition text-left cursor-pointer"
               >
                 <div className="text-xs font-bold text-[#1a1a1a] flex items-center justify-between">
-                  <span>MASTER (PCOM)</span>
+                  <span>DEMO USER | MASTER (PCOM)</span>
                   <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-mono font-bold">ALL</span>
                 </div>
                 <div className="text-[10px] text-[#71717a] truncate font-mono">EMP-IR-001</div>
@@ -417,7 +417,7 @@ export const LoginPage: React.FC = () => {
               <span>Official Indian Railways Access Portal</span>
             </div>
             <p className="text-[11px] text-[#71717a] leading-relaxed max-w-sm mx-auto">
-              This terminal communicates directly with the BZA Division Block Interlocking System. Access is audited under Railway Cyber Guidelines.
+              This terminal communicates directly with the Indian Railways Block Interlocking System. Access is audited under Railway Cyber Guidelines.
             </p>
           </div>
 
@@ -432,7 +432,7 @@ export const LoginPage: React.FC = () => {
               onClick={() => setShowForgotModal(true)}
               className="text-[#2d9b88] font-medium hover:underline"
             >
-              Contact Division Control (Ext. 4201)
+              Contact Operations Control (Ext. 4201)
             </button>
           </p>
         </div>
@@ -463,7 +463,7 @@ export const LoginPage: React.FC = () => {
                   Credential Recovery
                 </h3>
                 <p className="text-xs text-[#71717a]">
-                  South Central Railway Security Protocol
+                  Indian Railways Security Protocol
                 </p>
               </div>
             </div>
@@ -478,7 +478,7 @@ export const LoginPage: React.FC = () => {
                 In compliance with Indian Railways Cyber Governance (G&SR Section 3.2), automated self-service password resets are disabled for operational safety.
               </p>
               <p className="text-[#71717a]">
-                To verify identity and reset your credentials, please notify the Vijayawada Operating Control Room or your Senior Divisional Engineer desk.
+                To verify identity and reset your credentials, please notify the Railway Operating Control Room or your Senior Divisional Engineer desk.
               </p>
             </div>
 

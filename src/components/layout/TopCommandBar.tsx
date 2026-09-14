@@ -48,11 +48,11 @@ export const TopCommandBar: React.FC = () => {
                 RAIL SAMANVAYA
               </span>
               <span className="text-[10px] font-mono uppercase bg-neutral-100 px-2 py-0.5 rounded text-neutral-700 font-bold border border-neutral-200">
-                SCR · BZA DIVISION
+                INDIAN RAILWAYS
               </span>
             </div>
             <p className="text-[10px] text-neutral-500 font-mono hidden md:block leading-none mt-0.5">
-              South Central Railway · Vijayawada Divisional Control
+              National Maintenance Block Planning & Decision Support
             </p>
           </div>
         </div>
@@ -123,8 +123,8 @@ export const TopCommandBar: React.FC = () => {
             <div className="font-bold text-railway-textPrimary leading-tight text-xs font-sans">
               {state.currentUser.name}
             </div>
-            <div className="text-[10px] text-railway-textMuted font-mono leading-tight truncate max-w-[200px]" title={state.currentUser.designation || state.currentUser.role}>
-              {state.currentUser.designation || state.currentUser.role}
+            <div className="text-[10px] text-railway-textMuted font-mono leading-tight truncate max-w-[220px]" title={state.currentUser.designation || state.currentUser.role}>
+              {state.currentUser.role === 'MASTER' ? 'DEMO USER | MASTER (System Admin)' : (state.currentUser.designation || state.currentUser.role)}
             </div>
           </div>
 

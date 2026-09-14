@@ -7,6 +7,12 @@ import {
   detectLocation 
 } from '../services/infrastructureService.js';
 import { resolveLocationIntelligence } from '../services/locationIntelligenceService.js';
+import { 
+  searchStations, 
+  getStationDetails, 
+  getTracksInBoundingBox, 
+  resolveMaintenanceLocation 
+} from '../services/railwayGeospatialService.js';
 
 const router = Router();
 
@@ -18,6 +24,63 @@ router.get('/master', (req: Request, res: Response): void => {
     sections: SECTIONS,
     stations: STATIONS,
     assetsCount: ASSETS.length,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// GET /api/infrastructure/stations/search?q=...&limit=...
+router.get('/stations/search', (req: Request, res: Response): void => {
+  const q = (req.query.q as string) || '';
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 25;
+  const stations = searchStations(q, limit);
+  res.json({
+    success: true,
+    count: stations.length,
+    stations,
+    source: 'OSM',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// GET /api/infrastructure/stations/:code
+router.get('/stations/:code', (req: Request, res: Response): void => {
+  const code = String(req.params.code || '');
+  const result = getStationDetails(code);
+  if (!result.station) {
+    res.status(404).json({
+      success: false,
+      error: `Station '${code}' not found in national railway dataset.`,
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+  res.json({
+    success: true,
+    ...result,
+    source: 'OSM',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// GET /api/infrastructure/tracks?bbox=minLat,minLng,maxLat,maxLng&zoom=...
+router.get('/tracks', (req: Request, res: Response): void => {
+  const bboxQuery = req.query.bbox as string;
+  const zoom = req.query.zoom ? parseInt(req.query.zoom as string, 10) : 6;
+  
+  let bbox: [number, number, number, number] = [6.0, 68.0, 37.5, 97.5]; // Default all-India bounds
+  if (bboxQuery) {
+    const parts = bboxQuery.split(',').map(Number);
+    if (parts.length === 4 && parts.every(n => !isNaN(n))) {
+      bbox = [parts[0], parts[1], parts[2], parts[3]];
+    }
+  }
+
+  const tracks = getTracksInBoundingBox(bbox, zoom);
+  res.json({
+    success: true,
+    count: tracks.length,
+    tracks,
+    source: 'OSM',
     timestamp: new Date().toISOString()
   });
 });
@@ -98,15 +161,16 @@ router.post('/analyze-conflicts', (req: Request, res: Response): void => {
 });
 
 // POST /api/infrastructure/location-intelligence
-// Combines Infrastructure Master + OpenRailwayMap GIS + RailRadar train approach
+// Combines Infrastructure Master + OpenRailwayMap / OSM GIS + RailRadar train approach
 router.post('/location-intelligence', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { startLocation, endLocation, track, liveTrains } = req.body || {};
+    const { startLocation, endLocation, track, liveTrains, stationCode } = req.body || {};
     const result = await resolveLocationIntelligence(
       startLocation || '12/400',
       endLocation || '13/100',
       track || 'UP Main',
-      liveTrains || []
+      liveTrains || [],
+      stationCode
     );
 
     res.json({

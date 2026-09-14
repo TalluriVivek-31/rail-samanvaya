@@ -42,12 +42,23 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
+  // Dynamic India-wide sections
+  const availableSections = Array.from(new Set([
+    ...(state.sections?.map(s => s.name || s.id) || []),
+    ...state.requests.map(r => r.section).filter(Boolean)
+  ])).filter(Boolean);
+
   // Filter requests
   const filteredRequests = state.requests.filter(req => {
     if (selectedDept !== 'ALL' && req.department !== selectedDept) return false;
     if (selectedPriority !== 'ALL' && req.priority !== selectedPriority) return false;
     if (selectedSection !== 'ALL' && req.section !== selectedSection) return false;
-    if (selectedStatus !== 'ALL' && req.status !== selectedStatus) return false;
+    if (selectedStatus !== 'ALL') {
+      const sNorm = (s: string) => (s || '').toUpperCase().replace(/[\s\-_/]+/g, '');
+      if (sNorm(req.status) !== sNorm(selectedStatus) && req.status !== selectedStatus) {
+        return false;
+      }
+    }
     if (searchQuery.trim() !== '') {
       const q = searchQuery.toLowerCase();
       return (
@@ -57,11 +68,75 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
         (req.stationCode && req.stationCode.toLowerCase().includes(q)) ||
         (req.stationName && req.stationName.toLowerCase().includes(q)) ||
         (req.routeCode && req.routeCode.toLowerCase().includes(q)) ||
-        (req.betweenStations && req.betweenStations.toLowerCase().includes(q))
+        (req.betweenStations && req.betweenStations.toLowerCase().includes(q)) ||
+        (req.continuationOfBlockId && req.continuationOfBlockId.toLowerCase().includes(q))
       );
     }
     return true;
   });
+
+  const getStatusBadge = (req: (typeof state.requests)[0]) => {
+    const s = req.status;
+    const sNorm = (s || '').toUpperCase().replace(/[\s\-_/]+/g, '');
+
+    if (sNorm === 'SUBMITTED' || sNorm === 'PENDING') {
+      return { label: 'SUBMITTED', sublabel: 'Requisition Logged', badgeClass: 'bg-amber-50 text-amber-900 border-amber-300', dotClass: 'bg-amber-500' };
+    }
+    if (sNorm === 'DEPARTMENTAPPROVED' || sNorm === 'VERIFIED') {
+      return { label: 'DEPARTMENT_APPROVED', sublabel: 'Technical Clearance', badgeClass: 'bg-blue-50 text-blue-900 border-blue-300', dotClass: 'bg-blue-600' };
+    }
+    if (sNorm === 'PLANNING' || sNorm === 'PLANNINGQUEUE') {
+      return { label: 'PLANNING', sublabel: 'Timetable Evaluation', badgeClass: 'bg-indigo-50 text-indigo-900 border-indigo-300', dotClass: 'bg-indigo-600' };
+    }
+    if (sNorm === 'BLOCKWINDOWALLOCATED') {
+      return { label: 'RECOMMENDED', sublabel: 'Awaiting Authorization', badgeClass: 'bg-amber-100 text-amber-900 border-amber-400 font-bold', dotClass: 'bg-amber-600 animate-pulse' };
+    }
+    if (sNorm === 'AUTHORIZED' || sNorm === 'APPROVED') {
+      return { label: 'AUTHORIZED', sublabel: 'Operating Concurrence', badgeClass: 'bg-purple-50 text-purple-900 border-purple-300', dotClass: 'bg-purple-600' };
+    }
+    if (sNorm === 'SCHEDULED') {
+      return { label: 'SCHEDULED', sublabel: 'Time-Locked Possession', badgeClass: 'bg-emerald-100 text-emerald-900 border-emerald-400 font-bold', dotClass: 'bg-emerald-600' };
+    }
+    if (sNorm === 'IMPOSED' || sNorm === 'BLOCKSTARTED') {
+      return { label: 'IMPOSED', sublabel: 'Control Possession Granted', badgeClass: 'bg-teal-50 text-teal-900 border-teal-300', dotClass: 'bg-teal-500 animate-pulse' };
+    }
+    if (sNorm === 'WORKSTARTED' || sNorm === 'WORKINPROGRESS') {
+      return { label: 'WORK_STARTED', sublabel: 'Track Protected On-Site', badgeClass: 'bg-cyan-50 text-cyan-900 border-cyan-300', dotClass: 'bg-cyan-500 animate-pulse' };
+    }
+    if (sNorm === 'WORKCOMPLETED') {
+      return { label: 'WORK_COMPLETED', sublabel: 'Physical Scope Finished', badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-300', dotClass: 'bg-emerald-500' };
+    }
+    if (sNorm === 'PARTIALLYCOMPLETED') {
+      return { label: 'PARTIALLY_COMPLETED', sublabel: 'Continuation Required', badgeClass: 'bg-amber-100 text-amber-950 border-amber-400 font-bold', dotClass: 'bg-amber-600 animate-bounce' };
+    }
+    if (sNorm === 'COMPLETIONREPORTREQUIRED') {
+      return { label: 'COMPLETION_REPORT_REQUIRED', sublabel: 'Report Overdue', badgeClass: 'bg-rose-100 text-rose-950 border-rose-400 font-bold animate-pulse', dotClass: 'bg-rose-600' };
+    }
+    if (sNorm === 'BLOCKRETURNED' || sNorm === 'BLOCKRELEASED') {
+      return { label: 'BLOCK_RETURNED', sublabel: 'Field Handed to Control', badgeClass: 'bg-sky-50 text-sky-900 border-sky-300', dotClass: 'bg-sky-500' };
+    }
+    if (sNorm === 'RESTORATIONPENDING') {
+      return { label: 'RESTORATION_PENDING', sublabel: 'Awaiting Track Fitness', badgeClass: 'bg-orange-50 text-orange-950 border-orange-300', dotClass: 'bg-orange-500 animate-pulse' };
+    }
+    if (sNorm === 'NORMALRESTORED') {
+      return { label: 'NORMAL_RESTORED', sublabel: 'Normal Speed (130 km/h)', badgeClass: 'bg-emerald-100 text-emerald-950 border-emerald-400 font-bold', dotClass: 'bg-emerald-600' };
+    }
+    if (sNorm === 'RESTRICTED') {
+      const spd = req.operationalRestriction?.speedKmph;
+      return { label: 'RESTRICTED', sublabel: spd ? `Caution: ${spd} km/h` : 'Caution Order Active', badgeClass: 'bg-orange-100 text-orange-950 border-orange-400 font-bold', dotClass: 'bg-orange-600' };
+    }
+    if (sNorm === 'CLOSED') {
+      return { label: 'CLOSED', sublabel: 'Operating Cycle Complete', badgeClass: 'bg-neutral-100 text-neutral-700 border-neutral-300', dotClass: 'bg-neutral-500' };
+    }
+    if (sNorm === 'REJECTED') {
+      return { label: 'REJECTED', sublabel: 'Terminated with Reason', badgeClass: 'bg-red-50 text-red-900 border-red-300', dotClass: 'bg-red-600' };
+    }
+    if (sNorm === 'CANCELLED') {
+      return { label: 'CANCELLED', sublabel: 'Cancelled', badgeClass: 'bg-neutral-100 text-neutral-600 border-neutral-300', dotClass: 'bg-neutral-400' };
+    }
+
+    return { label: s, sublabel: '', badgeClass: 'bg-purple-50 text-purple-900 border-purple-200', dotClass: 'bg-purple-500' };
+  };
 
   return (
     <div className="space-y-6 pb-12">
@@ -72,7 +147,7 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
             Maintenance Requirements
           </h1>
           <p className="text-sm text-railway-textSecondary mt-1">
-            Browse, filter, and track maintenance requirements across Permanent Way, Signalling, and Traction departments.
+            P.Way · S&T · TRD Requisitions
           </p>
         </div>
 
@@ -130,10 +205,10 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
               onChange={(e) => setSelectedSection(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-full bg-railway-canvas border border-railway-border text-xs font-medium text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
             >
-              <option value="ALL">All Sections (SEC-A–C)</option>
-              <option value="SEC-A">SEC-A (BZA – MAG)</option>
-              <option value="SEC-B">SEC-B (MAG – GNT)</option>
-              <option value="SEC-C">SEC-C (GNT – TEL)</option>
+              <option value="ALL">All Sections (India-wide)</option>
+              {availableSections.map(sec => (
+                <option key={sec} value={sec}>{sec}</option>
+              ))}
             </select>
           </div>
 
@@ -152,28 +227,31 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
             </select>
           </div>
 
-          {/* Status Filter */}
+          {/* Operational Lifecycle Status Filter */}
           <div>
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-full bg-railway-canvas border border-railway-border text-xs font-medium text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
             >
-              <option value="ALL">All Statuses (17 Stages)</option>
-              <option value="Submitted">Submitted (Review Pending)</option>
-              <option value="Verified">Verified (Technical Clearance)</option>
-              <option value="Approval Pending">Approval Pending (Operating Concurrence)</option>
-              <option value="Approved">Approved</option>
-              <option value="Planning Queue">Planning Queue</option>
-              <option value="Block Window Allocated">Block Window Allocated</option>
-              <option value="Scheduled">Scheduled (Time-Locked)</option>
-              <option value="Block Started">Block Started (Memo Exchanged)</option>
-              <option value="Work in Progress">Work in Progress (Track Protected)</option>
-              <option value="Work Completed">Work Completed</option>
-              <option value="Block Released">Block Released</option>
-              <option value="Closed">Closed</option>
-              <option value="Revision Required">Revision Required</option>
-              <option value="Rejected">Rejected</option>
+              <option value="ALL">All Operational Statuses (23 Lifecycle States)</option>
+              <option value="SUBMITTED">SUBMITTED (Requisition Logged)</option>
+              <option value="DEPARTMENT_APPROVED">DEPARTMENT_APPROVED (Technical Sign-off)</option>
+              <option value="PLANNING">PLANNING (Timetable Analysis)</option>
+              <option value="AUTHORIZED">AUTHORIZED (Operating Concurrence)</option>
+              <option value="SCHEDULED">SCHEDULED (Time-Locked Window)</option>
+              <option value="IMPOSED">IMPOSED (Section Control Possession)</option>
+              <option value="WORK_STARTED">WORK_STARTED (Track Protected)</option>
+              <option value="WORK_COMPLETED">WORK_COMPLETED (Physical Work Done)</option>
+              <option value="PARTIALLY_COMPLETED">PARTIALLY_COMPLETED (Partial Execution)</option>
+              <option value="COMPLETION_REPORT_REQUIRED">COMPLETION_REPORT_REQUIRED (Report Overdue)</option>
+              <option value="BLOCK_RETURNED">BLOCK_RETURNED (Returned to Control)</option>
+              <option value="RESTORATION_PENDING">RESTORATION_PENDING (Awaiting Track Fitness)</option>
+              <option value="NORMAL_RESTORED">NORMAL_RESTORED (Restored to Full Speed)</option>
+              <option value="RESTRICTED">RESTRICTED (Caution Order / TSR Active)</option>
+              <option value="CLOSED">CLOSED (Formally Closed)</option>
+              <option value="REJECTED">REJECTED</option>
+              <option value="CANCELLED">CANCELLED</option>
             </select>
           </div>
         </div>
@@ -263,12 +341,12 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
             </div>
             <div className="space-y-1">
               <h3 className="text-lg font-bold text-railway-textPrimary">
-                {state.requests.length === 0 ? 'No maintenance requirements' : 'No matching maintenance requirements found'}
+                {state.requests.length === 0 ? 'No Maintenance Requirements' : 'No Matching Requirements'}
               </h3>
-              <p className="text-sm text-railway-textSecondary max-w-sm mx-auto">
+              <p className="text-xs text-railway-textSecondary max-w-sm mx-auto">
                 {state.requests.length === 0 
-                  ? 'Create a maintenance requirement to begin planning.' 
-                  : 'No maintenance requisitions currently match your selected filters. Adjust your query or submit a new requirement.'}
+                  ? 'Create a requirement to begin planning.' 
+                  : 'Adjust query or reset filters.'}
               </p>
             </div>
             <button
@@ -276,7 +354,7 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
               className="mt-2 inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-railway-forest text-white text-xs font-semibold shadow-xs"
             >
               <Plus className="w-3.5 h-3.5 text-railway-signalGreenLight" />
-              <span>Create Maintenance Requirement</span>
+              <span>New Requisition</span>
             </button>
           </div>
         ) : (
@@ -284,22 +362,21 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-railway-border bg-railway-canvas/50 text-[11px] font-mono text-railway-textMuted uppercase tracking-wider">
-                  <th className="py-3.5 px-6 font-semibold">Request ID</th>
-                  <th className="py-3.5 px-6 font-semibold">Department</th>
-                  <th className="py-3.5 px-6 font-semibold">Section & Chainage</th>
-                  <th className="py-3.5 px-6 font-semibold">Work Scope</th>
-                  <th className="py-3.5 px-6 font-semibold">Window & Duration</th>
-                  <th className="py-3.5 px-6 font-semibold">Priority</th>
-                  <th className="py-3.5 px-6 font-semibold">Status</th>
-                  <th className="py-3.5 px-6 font-semibold text-right">Action</th>
+                  <th className="py-3.5 px-5 font-semibold">Request & Facilities</th>
+                  <th className="py-3.5 px-5 font-semibold">Department</th>
+                  <th className="py-3.5 px-5 font-semibold">Section & Chainage</th>
+                  <th className="py-3.5 px-5 font-semibold">Work Scope & Resources</th>
+                  <th className="py-3.5 px-5 font-semibold">Timestamps & Variance</th>
+                  <th className="py-3.5 px-5 font-semibold">Possession Breakdown</th>
+                  <th className="py-3.5 px-5 font-semibold">Priority</th>
+                  <th className="py-3.5 px-5 font-semibold">Operational State</th>
+                  <th className="py-3.5 px-5 font-semibold text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-railway-border text-xs">
                 {filteredRequests.map((req) => {
-                  const isPending = req.status === 'Pending';
-                  const isApproved = req.status === 'Approved';
-                  const isRejected = req.status === 'Rejected';
-                  const isRevision = req.status === 'Revision';
+                  const statusBadge = getStatusBadge(req);
+                  const breakdown = req.possessionBreakdown;
 
                   return (
                     <tr 
@@ -307,13 +384,44 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
                       onClick={() => onSelectRequest(req.id)}
                       className="hover:bg-neutral-50/80 transition-colors cursor-pointer group"
                     >
-                      {/* ID */}
-                      <td className="py-4 px-6 font-mono font-bold text-railway-forest">
-                        {req.id}
+                      {/* ID & Facilities */}
+                      <td className="py-4 px-5 font-mono">
+                        <div className="font-bold text-railway-forest text-sm">
+                          {req.id}
+                        </div>
+                        {req.continuationOfBlockId && (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-100 text-purple-900 border border-purple-300">
+                              Continuation of {req.continuationOfBlockId}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {req.trafficBlockRequired && (
+                            <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              TRAFFIC
+                            </span>
+                          )}
+                          {req.powerBlockRequired && (
+                            <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                              POWER
+                            </span>
+                          )}
+                          {req.sntDisconnectionRequired && (
+                            <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-blue-50 text-blue-800 border border-blue-200">
+                              S&amp;T
+                            </span>
+                          )}
+                          {req.integratedBlockRequired && (
+                            <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-purple-50 text-purple-800 border border-purple-200">
+                              INTEGRATED
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Department */}
-                      <td className="py-4 px-6">
+                      <td className="py-4 px-5">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase ${
                           req.department === 'P.Way' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' :
                           req.department === 'S&T' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
@@ -321,13 +429,16 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
                         }`}>
                           {req.department}
                         </span>
+                        <div className="text-[10px] text-railway-textMuted mt-1">
+                          By {req.engineer}
+                        </div>
                       </td>
 
                       {/* Section, Station & Chainage */}
-                      <td className="py-4 px-6">
+                      <td className="py-4 px-5">
                         <div className="flex items-center space-x-1.5 font-semibold text-railway-textPrimary">
                           <span className="font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-[11px] font-bold">
-                            {req.stationCode || 'MAG'}
+                            {req.stationCode || 'SEC'}
                           </span>
                           <span>{req.section}</span>
                           {req.routeCode && (
@@ -345,11 +456,6 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
                           {req.startLocation} – {req.endLocation}
                           {req.affectedLengthMeters ? ` (${req.affectedLengthMeters}m)` : ''}
                         </div>
-                        {req.betweenStations && (
-                          <div className="text-[10px] text-neutral-500 font-mono truncate max-w-xs mt-0.5">
-                            {req.betweenStations}
-                          </div>
-                        )}
                         {req.affectedTracks && req.affectedTracks.length > 0 && (
                           <div className="text-[10px] font-mono font-medium text-emerald-700 mt-0.5">
                             {req.affectedTracks.join(', ')}
@@ -357,64 +463,81 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
                         )}
                       </td>
 
-                      {/* Work Scope */}
-                      <td className="py-4 px-6 max-w-xs truncate">
+                      {/* Work Scope & Resources */}
+                      <td className="py-4 px-5 max-w-xs">
                         <div className="font-medium text-railway-textPrimary truncate">
                           {req.work}
                         </div>
-                        <div className="text-[11px] text-railway-textMuted">
-                          By {req.engineer}
+                        <div className="text-[10px] font-mono text-railway-textMuted mt-0.5 truncate">
+                          {req.resources?.machine_required?.join(', ') || req.machines?.join(', ') || 'Manual Maintenance'}
+                          {req.workforceCount ? ` · ${req.workforceCount} Staff` : ''}
                         </div>
                       </td>
 
-                      {/* Window & Duration */}
-                      <td className="py-4 px-6 font-mono">
-                        <div className="font-semibold text-railway-textPrimary">
-                          {req.preferredTime} IST
+                      {/* Timestamps & Variance */}
+                      <td className="py-4 px-5 font-mono text-xs">
+                        <div className="space-y-0.5">
+                          <div className="text-neutral-500 text-[10px]">
+                            REQ: <strong className="text-neutral-800">{req.requested_start || req.preferredTime} IST</strong> ({req.requested_duration || req.duration}m)
+                          </div>
+                          <div className="text-neutral-500 text-[10px]">
+                            PLAN: <strong className="text-neutral-800">{req.planned_start || req.allocatedWindow?.startTime || '—'}</strong> ({req.planned_duration || req.duration}m)
+                          </div>
+                          {req.actual_start && (
+                            <div className="text-emerald-700 text-[10px] font-bold">
+                              ACT: {req.actual_start} → {req.actual_end || 'Live'}
+                            </div>
+                          )}
+                          {req.duration_variance != null && (
+                            <div className="mt-1">
+                              <span className={`inline-flex px-2 py-0.2 rounded-full text-[9px] font-bold ${
+                                req.duration_variance > 0 ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                                req.duration_variance < 0 ? 'bg-blue-100 text-blue-900 border border-blue-300' :
+                                'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                              }`}>
+                                {req.duration_variance >= 0 ? '+' : ''}{req.duration_variance}m ({req.duration_variance > 0 ? 'Overrun' : req.duration_variance < 0 ? 'Underrun' : 'On Time'})
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        <div className="text-[11px] text-railway-textMuted">
-                          {req.duration} minutes ({req.date})
+                      </td>
+
+                      {/* Possession Breakdown */}
+                      <td className="py-4 px-5 font-mono text-[10px] text-neutral-600">
+                        <div className="space-y-0.5">
+                          <div>Mob: <strong>{breakdown?.mobilisation_duration ?? 15}m</strong> · Setup: <strong>{breakdown?.setup_duration ?? 15}m</strong></div>
+                          <div>Work: <strong className="text-railway-forest">{breakdown?.work_duration ?? 60}m</strong></div>
+                          <div>Clear: <strong>{breakdown?.clearance_duration ?? 15}m</strong> · Rest: <strong>{breakdown?.restoration_duration ?? 15}m</strong></div>
+                          <div className="text-neutral-900 font-bold border-t border-neutral-200 pt-0.5">
+                            Total: {req.total_required_duration || breakdown?.total_required_duration || req.duration}m
+                          </div>
                         </div>
                       </td>
 
                       {/* Priority */}
-                      <td className="py-4 px-6">
+                      <td className="py-4 px-5">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
                           req.priority === 'CRITICAL' ? 'bg-red-50 text-red-800 border border-red-200' :
                           req.priority === 'HIGH' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
                           'bg-neutral-100 text-neutral-800'
                         }`}>
-                          {req.priority} ({req.priorityScore})
+                          {req.priority}
                         </span>
                       </td>
 
-                      {/* Status */}
-                      <td className="py-4 px-6">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold font-mono ${
-                          req.status === 'Scheduled' ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold' :
-                          req.status === 'Block Window Allocated' ? 'bg-amber-100 text-amber-900 border border-amber-300 font-bold' :
-                          req.status === 'Approved' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' :
-                          req.status === 'Block Started' || req.status === 'Work in Progress' ? 'bg-teal-50 text-teal-800 border border-teal-200' :
-                          req.status === 'Work Completed' || req.status === 'Block Released' || req.status === 'Closed' ? 'bg-green-50 text-green-800 border border-green-200' :
-                          req.status === 'Submitted' || req.status === 'Pending' || req.status === 'Approval Pending' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
-                          req.status === 'P.Way/S&T/TRD Review' || req.status === 'Verified' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
-                          req.status === 'Planning Queue' || req.status === 'AI/OR Optimization' ? 'bg-indigo-50 text-indigo-800 border border-indigo-200' :
-                          req.status === 'Rejected' || req.status === 'Unsafe / Cancelled' ? 'bg-red-50 text-red-800 border border-red-200' :
-                          'bg-purple-50 text-purple-800 border border-purple-200'
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${
-                            req.status === 'Scheduled' ? 'bg-emerald-600' :
-                            req.status === 'Block Window Allocated' ? 'bg-amber-600 animate-pulse' :
-                            req.status === 'Approved' || req.status === 'Closed' ? 'bg-railway-signalGreen' :
-                            req.status === 'Block Started' || req.status === 'Work in Progress' ? 'bg-teal-500 animate-pulse' :
-                            req.status === 'Submitted' || req.status === 'Approval Pending' ? 'bg-railway-safetyAmber' :
-                            req.status === 'Rejected' || req.status === 'Unsafe / Cancelled' ? 'bg-railway-operationalRed' :
-                            'bg-blue-600'
-                          }`} />
-                          <span>
-                            {req.status === 'Block Window Allocated' ? 'Recommendation (Awaiting Sign-off)' : req.status}
+                      {/* Operational State */}
+                      <td className="py-4 px-5">
+                        <div className="space-y-0.5">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold font-mono border ${statusBadge.badgeClass}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${statusBadge.dotClass}`} />
+                            <span>{statusBadge.label}</span>
                           </span>
-                        </span>
+                          {statusBadge.sublabel && (
+                            <div className="text-[9px] font-mono text-neutral-500 pl-1">
+                              {statusBadge.sublabel}
+                            </div>
+                          )}
+                        </div>
                       </td>
 
                       {/* Action */}

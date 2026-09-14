@@ -247,11 +247,11 @@ export const CommunicationPage: React.FC<CommunicationPageProps> = ({ onNavigate
               <MessageSquare className="w-4 h-4 text-emerald-300" />
             </div>
             <h1 className="text-3xl font-bold tracking-tight text-railway-textPrimary">
-              Operational Communication
+              Communication
             </h1>
           </div>
           <p className="text-sm text-railway-textSecondary mt-1">
-            Official coordination desk for maintenance possessions, planning office clarifications, and divisional train control operations.
+            Inter-Departmental & Control Office Coordination
           </p>
         </div>
 
@@ -376,7 +376,7 @@ export const CommunicationPage: React.FC<CommunicationPageProps> = ({ onNavigate
 
                 <div className="text-xs font-mono text-railway-textMuted space-y-1 border-t border-railway-border pt-3">
                   <div>Officer: <strong>M. K. Rao (Sr. DOM / Planning)</strong></div>
-                  <div>Jurisdiction: <strong>Vijayawada Division (BZA)</strong></div>
+                  <div>Jurisdiction: <strong>Indian Railways Operations Desk</strong></div>
                   <div>Channel Status: <strong className="text-emerald-700">Active (Standard Operating Protocol)</strong></div>
                 </div>
               </div>
@@ -699,10 +699,10 @@ export const CommunicationPage: React.FC<CommunicationPageProps> = ({ onNavigate
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-railway-textPrimary">
-                    Divisional Planning Office Desk
+                    Railway Planning Office Desk
                   </h2>
                   <p className="text-xs text-neutral-500 font-mono">
-                    Officer In-Charge: M. K. Rao (Sr. DOM / Planning) · BZA Operating Office
+                    Officer In-Charge: M. K. Rao (Sr. DOM / Planning) · Operating Planning Desk
                   </p>
                 </div>
               </div>
@@ -824,10 +824,10 @@ export const CommunicationPage: React.FC<CommunicationPageProps> = ({ onNavigate
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-railway-textPrimary">
-                    Divisional Train Control Desk
+                    Train Control Desk
                   </h2>
                   <p className="text-xs text-neutral-500 font-mono">
-                    Chief Controller: P. Murthy / Section Controller · BZA Central Control Room
+                    Chief Controller: P. Murthy / Section Controller · Central Operations Control Room
                   </p>
                 </div>
               </div>

@@ -16,6 +16,115 @@ router.post('/cache/clear', (req: Request, res: Response): void => {
   res.json({ success: true, message: 'Cache cleared successfully' });
 });
 
+// GET /api/railradar/health
+// Diagnostic endpoint: Reports configured status, backend availability, and provider reachability without exposing secrets
+let cachedHealthProbe: { timestamp: number; result: any } | null = null;
+const HEALTH_CACHE_TTL = 300_000; // 5 minutes
+
+router.get('/health', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const rawKey = process.env.RAILRADAR_API_KEY || '';
+    const apiKey = rawKey.trim().replace(/^Bearer\s+/i, '');
+    const isConfigured = Boolean(apiKey && apiKey.length > 5);
+
+    if (!isConfigured) {
+      res.json({
+        provider: 'RailRadar',
+        configured: false,
+        backend: 'available',
+        providerReachable: false,
+        status: 'not_configured',
+        failureState: 'NOT_CONFIGURED',
+        timestamp: new Date().toISOString(),
+        message: 'RAILRADAR_API_KEY is not configured on the server. Live telemetry is unavailable.'
+      });
+      return;
+    }
+
+    // Use cached probe to avoid exhausting monthly quota
+    const now = Date.now();
+    if (cachedHealthProbe && (now - cachedHealthProbe.timestamp) < HEALTH_CACHE_TTL) {
+      res.json(cachedHealthProbe.result);
+      return;
+    }
+
+    let providerReachable = false;
+    let providerStatus = 'unknown';
+    let failureState = 'UNKNOWN';
+    let httpStatus = 0;
+    let message = '';
+
+    try {
+      const probeController = new AbortController();
+      const probeTimeout = setTimeout(() => probeController.abort(), 4000);
+      const probeRes = await fetch('https://api.railradar.in/v1/trains/12627/live', {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'x-api-key': apiKey,
+          'Accept': 'application/json'
+        },
+        signal: probeController.signal
+      });
+      clearTimeout(probeTimeout);
+
+      httpStatus = probeRes.status;
+      providerReachable = true;
+
+      if (probeRes.status === 200) {
+        providerStatus = 'ready';
+        failureState = 'LIVE';
+        message = 'RailRadar provider reachable and telemetry available.';
+      } else if (probeRes.status === 429) {
+        providerStatus = 'rate_limited';
+        failureState = 'PROVIDER_UNAVAILABLE';
+        message = 'Upstream RailRadar quota exceeded (HTTP 429 Too Many Requests). Use DEMO mode or wait for quota reset.';
+      } else if (probeRes.status === 401 || probeRes.status === 403) {
+        providerStatus = 'auth_failed';
+        failureState = 'AUTHENTICATION_FAILED';
+        message = 'RailRadar authentication failed (invalid API key).';
+      } else {
+        providerStatus = 'degraded';
+        failureState = 'PROVIDER_UNAVAILABLE';
+        message = `Upstream RailRadar returned HTTP ${probeRes.status}.`;
+      }
+    } catch (probeErr: any) {
+      providerReachable = false;
+      providerStatus = 'unreachable';
+      failureState = probeErr?.name === 'AbortError' ? 'REQUEST_TIMEOUT' : 'PROVIDER_UNAVAILABLE';
+      message = probeErr?.name === 'AbortError' 
+        ? 'Request timeout connecting to upstream RailRadar API.' 
+        : `Network error connecting to RailRadar provider: ${probeErr?.message || 'Connection failed'}`;
+    }
+
+    const payload = {
+      provider: 'RailRadar',
+      configured: true,
+      backend: 'available',
+      providerReachable,
+      providerStatus,
+      status: providerStatus,
+      failureState,
+      httpStatus,
+      timestamp: new Date().toISOString(),
+      message
+    };
+
+    cachedHealthProbe = { timestamp: now, result: payload };
+    res.json(payload);
+  } catch (error) {
+    res.status(500).json({
+      provider: 'RailRadar',
+      configured: false,
+      backend: 'available',
+      providerReachable: false,
+      status: 'error',
+      failureState: 'BACKEND_UNAVAILABLE',
+      timestamp: new Date().toISOString(),
+      message: 'Internal server error evaluating RailRadar health'
+    });
+  }
+});
+
 // GET /api/railradar/train/:number/live
 router.get('/train/:number/live', async (req: Request, res: Response): Promise<void> => {
   try {

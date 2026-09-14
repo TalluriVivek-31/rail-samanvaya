@@ -52,7 +52,9 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
     openChat,
     sendPlanningOfficeQuery,
     sendToControl,
-    authorizeAndScheduleBlock
+    authorizeAndScheduleBlock,
+    submitDepartmentApproval,
+    submitPlanApproval
   } = useSamnvayStore();
 
   const isMaster = state.currentUser.role === 'MASTER';
@@ -72,15 +74,20 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
 
   // Filter requests that are in pre-approval stages or revision
   const pendingRequests = state.requests.filter(r => {
+    const sNorm = (r.status || '').toUpperCase().replace(/[\s\-_/]+/g, '');
     const isPreApproval = 
-      r.status === 'Submitted' || 
-      r.status === 'P.Way/S&T/TRD Review' || 
-      r.status === 'Verified' || 
-      r.status === 'Approval Pending' ||
-      r.status === 'Pending' || 
-      r.status === 'Review' || 
-      r.status === 'Revision' ||
-      r.status === 'Revision Required';
+      sNorm === 'SUBMITTED' || 
+      sNorm === 'DEPARTMENTAPPROVED' ||
+      sNorm === 'PLANNING' ||
+      sNorm === 'PLANNINGQUEUE' ||
+      sNorm === 'BLOCKWINDOWALLOCATED' ||
+      sNorm === 'PWAYSTTRDREVIEW' || 
+      sNorm === 'VERIFIED' || 
+      sNorm === 'APPROVALPENDING' ||
+      sNorm === 'PENDING' || 
+      sNorm === 'REVIEW' || 
+      sNorm === 'REVISION' ||
+      sNorm === 'REVISIONREQUIRED';
     if (!isPreApproval) return false;
     if (filterDept !== 'ALL' && r.department !== filterDept) return false;
     return true;
@@ -122,10 +129,10 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
       <div className="border-b border-railway-border pb-5 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-railway-textPrimary font-sans">
-            Approval Command Center
+            Approval Queue
           </h1>
           <p className="text-sm text-railway-textSecondary mt-1">
-            Evaluate maintenance requirements, verify operational permissions, inspect complete user submissions, and issue operating concurrence.
+            Operating Concurrence & Technical Verification
           </p>
         </div>
 
@@ -195,52 +202,7 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
             <span className="text-[9px] text-neutral-500 font-sans">Official Block Memo</span>
           </div>
         </div>
-
-        {/* Mandatory Railway Authority Model Disclaimer */}
-        <div className="rounded-2xl bg-sky-50/80 border border-sky-200 p-3.5 text-xs text-sky-950 flex items-start gap-2.5">
-          <ShieldCheck className="w-4 h-4 text-sky-700 flex-shrink-0 mt-0.5" />
-          <p className="leading-relaxed">
-            <strong>Operating Authority Notice:</strong> Rail Samnvay models an Authorized Operating / Control Authority for operational validation and block authorization. The exact competent authority and workflow can vary by block type, division and applicable railway operating rules.
-          </p>
-        </div>
       </div>
-
-      {/* Dynamic Role Guidance Card */}
-      {isEngineerRole && (
-        <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 flex items-start gap-3 text-xs text-amber-900">
-          <ShieldAlert className="w-4 h-4 text-railway-safetyAmber flex-shrink-0 mt-0.5" />
-          <p className="leading-relaxed">
-            <strong>Maintenance Requester View:</strong> You are logged in as a maintenance engineer (<span className="font-semibold">{state.currentUser.role}</span>). Under Indian Railways operating regulations, maintenance departments submit requirements. Operational validation and block authorization are executed exclusively by the Authorized Operating / Control Authority (<strong>COA / Operations</strong>) following Planning Officer recommendations.
-          </p>
-        </div>
-      )}
-
-      {state.currentUser.role === 'Planning Officer' && (
-        <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-4 flex items-start gap-3 text-xs text-emerald-950">
-          <Sparkles className="w-4 h-4 text-emerald-700 flex-shrink-0 mt-0.5" />
-          <p className="leading-relaxed">
-            <strong>Planning Desk Active:</strong> Logged in as <span className="font-semibold">Planning Officer ({state.currentUser.name})</span>. You evaluate requisitions, verify technical isolations, run AI prioritization & CP-SAT corridor bundling, and formulate <strong>Recommended Block Windows</strong> to submit to COA / Operations Control. Planning Officers do not unilaterally approve or grant blocks.
-          </p>
-        </div>
-      )}
-
-      {state.currentUser.role === 'COA / Operations' && (
-        <div className="rounded-2xl bg-purple-50 border border-purple-200 p-4 flex items-start gap-3 text-xs text-purple-950">
-          <ShieldCheck className="w-4 h-4 text-purple-700 flex-shrink-0 mt-0.5" />
-          <p className="leading-relaxed">
-            <strong>Authorized Operating / Control Authority Active:</strong> Logged in as <span className="font-semibold">COA / Operations ({state.currentUser.name}, Chief Train Controller)</span>. You hold operational authority to evaluate train headway impacts, review conflict graphs, authorize corridor blocks, and issue official Block Memos.
-          </p>
-        </div>
-      )}
-
-      {state.currentUser.role === 'MASTER' && (
-        <div className="rounded-2xl bg-neutral-100 border border-neutral-300 p-4 flex items-start gap-3 text-xs text-neutral-800">
-          <UserCheck className="w-4 h-4 text-neutral-700 flex-shrink-0 mt-0.5" />
-          <p className="leading-relaxed">
-            <strong>System Administrator / Prototype Superuser:</strong> Logged in as <span className="font-semibold">MASTER ({state.currentUser.name})</span>. Full system administrative access across all modules. Any direct operational authorization by MASTER will be permanently tagged with <span className="font-mono font-bold bg-neutral-200 px-1 rounded">[Administrative Override]</span> in the audit trail.
-          </p>
-        </div>
-      )}
 
       {/* Department Filter Strip */}
       <div className="flex items-center space-x-2">
@@ -672,23 +634,25 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
                     )}
 
                     {/* Technical Verification by Departmental Head */}
-                    {(req.status === 'Submitted' || req.status === 'P.Way/S&T/TRD Review') && (
+                    {(req.status === 'SUBMITTED' || req.status === 'Submitted' || req.status === 'P.Way/S&T/TRD Review') && (
                       <button
                         type="button"
-                        onClick={() => transitionBlockStatus(req.id, 'Verified', 'Technical clearance verified: Assets, gang, and safety equipment checked.')}
-                        className="px-4 py-2 rounded-full bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-900 text-xs font-semibold transition flex items-center gap-1.5"
+                        disabled={isCreator}
+                        onClick={() => submitDepartmentApproval(req.id, 'Technical clearance verified: Assets, gang, and safety equipment checked.')}
+                        className="px-4 py-2 rounded-full bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-900 text-xs font-semibold transition flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                       >
                         <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
                         <span>Verify Technical Feasibility</span>
                       </button>
                     )}
 
-                    {/* Forward to Operating Approval */}
-                    {req.status === 'Verified' && (
+                    {/* Forward to Operating Approval / Corridor Planning */}
+                    {(req.status === 'DEPARTMENT_APPROVED' || req.status === 'Verified') && (
                       <button
                         type="button"
-                        onClick={() => transitionBlockStatus(req.id, 'Approval Pending', 'Forwarded to Senior Divisional Operating Manager for headway concurrence.')}
-                        className="px-4 py-2 rounded-full bg-purple-50 border border-purple-200 hover:bg-purple-100 text-purple-900 text-xs font-semibold transition flex items-center gap-1.5"
+                        disabled={isCreator}
+                        onClick={() => submitPlanApproval(req.id, 'Forwarded to Senior Divisional Operating Manager / Corridor Planning for timetable concurrence.')}
+                        className="px-4 py-2 rounded-full bg-purple-50 border border-purple-200 hover:bg-purple-100 text-purple-900 text-xs font-semibold transition flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                       >
                         <Clock className="w-3.5 h-3.5 text-purple-600" />
                         <span>Forward for Operating Concurrence</span>

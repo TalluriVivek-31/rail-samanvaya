@@ -1,6 +1,6 @@
 // Planning Engine & Schedule Matrix Page
 // Redesigned with unified Vertex-inspired government railway design system (No AI buzzword overload)
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useSamnvayStore } from '../store/useSamnvayStore';
 import { 
   Calendar, 
@@ -18,10 +18,17 @@ import {
   Info,
   MessageSquare,
   Trash2,
-  X
+  X,
+  SlidersHorizontal,
+  Table as TableIcon,
+  Check,
+  Activity,
+  Edit3
 } from 'lucide-react';
 
-import { SamnvayPage } from '../types/samnvay';
+import { SamnvayPage, BlockRequest } from '../types/samnvay';
+import { analyzeLocationTrainConflicts } from '../optimization/conflictEngine';
+import { CandidatePlanningWindow } from '../types/infrastructure';
 
 interface AiPlanningPageProps {
   onNavigate?: (page: SamnvayPage) => void;
@@ -38,7 +45,8 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
     sendToControl,
     requestAutomaticPlanning,
     openBlockCommunication,
-    deleteMaintenanceBlock
+    deleteMaintenanceBlock,
+    recordManualOverride
   } = useSamnvayStore();
   const isMaster = state.currentUser.role === 'MASTER';
   const [deleteModalReqId, setDeleteModalReqId] = useState<string | null>(null);
@@ -47,11 +55,70 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
   const [rescheduleStart, setRescheduleStart] = useState('04:30');
   const [rescheduleEnd, setRescheduleEnd] = useState('06:30');
 
+  const [selectedCandidateReqId, setSelectedCandidateReqId] = useState<string | null>(null);
+  const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
+  const [manualOverrideModalReqId, setManualOverrideModalReqId] = useState<string | null>(null);
+  const [manualOverrideStart, setManualOverrideStart] = useState('04:30');
+  const [manualOverrideEnd, setManualOverrideEnd] = useState('06:30');
+  const [manualOverrideReason, setManualOverrideReason] = useState('');
+  const [manualOverrideError, setManualOverrideError] = useState('');
+
   const [planningPeriod, setPlanningPeriod] = useState('24 Hours (Next Day Matrix)');
-  const [corridor, setCorridor] = useState('BZA–KZJ Main Line');
+  const [corridor, setCorridor] = useState('ALL');
   const [maxConcurrent, setMaxConcurrent] = useState('2 Blocks');
   const [safetyBuffer, setSafetyBuffer] = useState('15 Minutes (G&SR Standard)');
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+
+  // Active Requisition for Candidate Planning Window Inspection
+  const activeReq = useMemo(() => {
+    if (selectedCandidateReqId) {
+      const found = state.requests.find(r => r.id === selectedCandidateReqId);
+      if (found) return found;
+    }
+    const allocated = state.requests.find(r => r.status === 'Block Window Allocated');
+    if (allocated) return allocated;
+    const queued = state.requests.find(r => r.status === 'Planning Queue' || r.status === 'Approved');
+    if (queued) return queued;
+    return state.requests[0];
+  }, [selectedCandidateReqId, state.requests]);
+
+  // Conflict and candidate window analysis for the active requisition
+  const activeReqAnalysis = useMemo(() => {
+    if (!activeReq) return null;
+    return analyzeLocationTrainConflicts(
+      activeReq.startKm || 12.4,
+      activeReq.endKm || 13.1,
+      activeReq.affectedTracks || ['UP Main'],
+      activeReq.duration || 120,
+      activeReq.preferredStartTime,
+      state.liveData.liveTrains
+    );
+  }, [activeReq, state.liveData.liveTrains]);
+
+  // Contextual train movements near the active maintenance work zone
+  const contextualTrains = useMemo(() => {
+    if (!activeReq) return [];
+    const affectedTrack = activeReq.affectedTracks?.[0] || 'UP Main';
+    const isUp = affectedTrack.includes('UP');
+    const reqKm = activeReq.startKm || 12.4;
+
+    return state.liveData.liveTrains.map(t => {
+      const trainKm = t.currentKm ?? 10.0;
+      const dist = Number(Math.abs(trainKm - reqKm).toFixed(1));
+      const speed = t.speedKmph || 60;
+      const etaMins = Math.max(1, Math.round((dist / Math.max(speed, 20)) * 60));
+      const isApproaching = isUp ? trainKm < reqKm : trainKm > reqKm;
+      const isInside = Math.abs(trainKm - reqKm) < 0.5;
+
+      return {
+        ...t,
+        distanceKm: dist,
+        dynamicEtaMinutes: etaMins,
+        isApproaching,
+        isInside
+      };
+    }).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 5);
+  }, [activeReq, state.liveData.liveTrains]);
 
   // Timeline hours across 24h operational cycle (00:00 to 24:00)
   const timelineHours = [0, 3, 6, 9, 12, 15, 18, 21, 24];
@@ -120,11 +187,11 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
               <Calendar className="w-4 h-4" />
             </div>
             <h1 className="text-3xl font-bold tracking-tight text-railway-textPrimary font-sans">
-              Corridor Planning Engine
+              Planning Engine
             </h1>
           </div>
           <p className="text-sm text-railway-textSecondary mt-1">
-            Mathematical constraint solver coordinating maintenance possessions, train movements, and safety margins.
+            Corridor Allocation & Timetable Optimization
           </p>
         </div>
 
@@ -134,14 +201,6 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
             CP-SAT LINEAR PROGRAMMING
           </span>
         </div>
-      </div>
-
-      {/* Mandatory Railway Authority Model Disclaimer */}
-      <div className="rounded-2xl bg-sky-50/80 border border-sky-200 p-3.5 text-xs text-sky-950 flex items-start gap-2.5">
-        <CheckCircle2 className="w-4 h-4 text-sky-700 flex-shrink-0 mt-0.5" />
-        <p className="leading-relaxed">
-          <strong>Operating Authority Notice:</strong> Rail Samnvay models an Authorized Operating / Control Authority for operational validation and block authorization. The exact competent authority and workflow can vary by block type, division and applicable railway operating rules.
-        </p>
       </div>
 
       {/* 2. PARAMETERS & SOLVER CONTROL CARD */}
@@ -183,9 +242,12 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
               onChange={(e) => setCorridor(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-full bg-railway-canvas border border-railway-border text-xs font-medium text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
             >
-              <option>SEC-A: Vijayawada – Mangalagiri (KM 0–25)</option>
-              <option>SEC-B: Mangalagiri – Guntur Jn (KM 25–52.5)</option>
-              <option>SEC-C: Guntur Jn – Tenali Jn (KM 52.5–80)</option>
+              <option value="ALL">All Network Corridors (India-Wide Scope)</option>
+              {state.sections.map((sec) => (
+                <option key={sec.id} value={sec.id}>
+                  {sec.id}: {sec.name} ({sec.kmRange})
+                </option>
+              ))}
             </select>
           </div>
 
@@ -262,6 +324,335 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
           </div>
         </div>
       </div>
+
+      {/* 2.2 CANDIDATE BLOCK WINDOWS & MULTI-WINDOW DECISION SUPPORT (Prompt Sections 13, 14, 15) */}
+      {activeReq && (
+        <div className="bg-white rounded-3xl border border-railway-border p-6 sm:p-8 shadow-xs space-y-6">
+          {/* Top Bar: Requisition Selector Pills */}
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-railway-border pb-4">
+            <div>
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-800 flex items-center justify-center font-bold border border-emerald-200">
+                  <SlidersHorizontal className="w-5 h-5 text-emerald-700" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono font-bold uppercase text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                    CANDIDATE BLOCK WINDOWS · MULTI-WINDOW EVALUATION
+                  </span>
+                  <h3 className="text-xl font-bold text-railway-textPrimary mt-0.5 font-sans">
+                    Possession Window Decision Support
+                  </h3>
+                </div>
+              </div>
+            </div>
+
+            {/* Requisition Pills Selector */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-mono text-neutral-400 mr-1 hidden sm:inline">SELECT REQUISITION:</span>
+              {state.requests.slice(0, 5).map(req => {
+                const isSelected = activeReq.id === req.id;
+                return (
+                  <button
+                    key={req.id}
+                    onClick={() => setSelectedCandidateReqId(req.id)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-mono font-bold border transition ${
+                      isSelected
+                        ? 'bg-railway-forest text-white border-railway-forest shadow-xs'
+                        : 'bg-neutral-50 hover:bg-neutral-100 text-neutral-700 border-neutral-200'
+                    }`}
+                  >
+                    <span>{req.id}</span>
+                    <span className={`ml-1.5 text-[9px] px-1.5 py-0.2 rounded-full ${
+                      isSelected ? 'bg-white/20 text-white' : 'bg-neutral-200 text-neutral-600'
+                    }`}>
+                      {req.department}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Active Requisition Details Card */}
+          <div className="p-4 rounded-2xl bg-railway-canvas border border-railway-border flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center space-x-2.5">
+                <span className="font-bold text-railway-forest text-sm font-mono">{activeReq.id}</span>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300 font-mono">
+                  {activeReq.department}
+                </span>
+                <span className="font-semibold text-neutral-900 font-sans">{activeReq.work}</span>
+                {activeReq.manualOverride && (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-100 text-purple-900 border border-purple-300 font-mono">
+                    MANUAL OVERRIDE APPLIED
+                  </span>
+                )}
+              </div>
+              <div className="text-neutral-500 text-xs font-sans">
+                Section: <strong className="text-neutral-700">{activeReq.section}</strong> (KM {activeReq.startKm ?? '12.4'} – {activeReq.endKm ?? '13.1'}) · Track: <strong className="text-neutral-700">{activeReq.affectedTracks?.join(', ') || 'UP Main'}</strong> · Required Duration: <strong className="text-neutral-900 font-mono">{activeReq.duration} mins</strong>
+              </div>
+              <div className="text-neutral-600 text-xs pt-0.5">
+                Current Assigned Window: <strong className="text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-mono">{activeReq.allocatedWindow?.startTime || '04:30'} – {activeReq.allocatedWindow?.endTime || '06:30'} IST</strong>
+              </div>
+            </div>
+
+            {/* Quick Actions: Compare Windows & Manual Override */}
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => setIsCompareModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-railway-border hover:bg-neutral-50 text-railway-textPrimary text-xs font-semibold shadow-2xs transition cursor-pointer"
+                title="Open side-by-side comparison matrix of all candidate windows"
+              >
+                <TableIcon className="w-3.5 h-3.5 text-railway-forest" />
+                <span>COMPARE WINDOWS</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setManualOverrideModalReqId(activeReq.id);
+                  setManualOverrideStart(activeReq.allocatedWindow?.startTime || '04:30');
+                  setManualOverrideEnd(activeReq.allocatedWindow?.endTime || '06:30');
+                  setManualOverrideReason('');
+                  setManualOverrideError('');
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-amber-50 border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-bold shadow-2xs transition cursor-pointer"
+                title="Override system recommendation with custom timetable window (Mandatory reason required)"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-amber-700" />
+                <span>MANUAL WINDOW OVERRIDE</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 3 CANDIDATE WINDOWS CARDS */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
+            {(activeReqAnalysis?.candidateWindows || []).map((cand, idx) => {
+              const slotLabel = idx === 0 ? 'EARLY MORNING WINDOW' : idx === 1 ? 'OPTIMAL CORRIDOR WINDOW' : 'AFTERNOON WINDOW';
+              const isRecommended = Boolean(cand.isRecommended);
+              const isFeasible = cand.status === 'FEASIBLE';
+              const isConflict = cand.status === 'CONFLICT';
+              const isShort = cand.status === 'INSUFFICIENT_DURATION';
+
+              return (
+                <div
+                  key={cand.slotId}
+                  className={`p-5 rounded-2xl border transition-all flex flex-col justify-between space-y-4 shadow-2xs ${
+                    isRecommended
+                      ? 'bg-emerald-50/40 border-emerald-500 ring-2 ring-emerald-500/20'
+                      : isConflict
+                      ? 'bg-rose-50/30 border-rose-300'
+                      : isShort
+                      ? 'bg-amber-50/30 border-amber-300'
+                      : 'bg-white border-railway-border'
+                  }`}
+                >
+                  {/* Card Header */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase text-neutral-500 tracking-wider">
+                        {cand.slotId} · {slotLabel}
+                      </span>
+                      {isRecommended ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white shadow-2xs flex items-center gap-1">
+                          <Check className="w-3 h-3" />
+                          <span>RECOMMENDED</span>
+                        </span>
+                      ) : isFeasible ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-900 border border-sky-300">
+                          FEASIBLE
+                        </span>
+                      ) : isConflict ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
+                          HEADWAY CONFLICT
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                          INSUFFICIENT
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-baseline space-x-2">
+                      <span className="text-xl font-bold text-railway-textPrimary">
+                        {cand.startTime} – {cand.endTime}
+                      </span>
+                      <span className="text-xs text-neutral-500">IST</span>
+                    </div>
+
+                    {/* Quick Specs */}
+                    <div className="grid grid-cols-2 gap-2 pt-1 text-[11px]">
+                      <div className="p-2 rounded-xl bg-white/80 border border-neutral-200">
+                        <span className="text-neutral-400 block text-[9px] uppercase">Available Window</span>
+                        <strong className="text-neutral-800">{cand.durationMinutes} min</strong>
+                      </div>
+                      <div className="p-2 rounded-xl bg-white/80 border border-neutral-200">
+                        <span className="text-neutral-400 block text-[9px] uppercase">Headway Margin</span>
+                        <strong className="text-emerald-700">+15 min G&amp;SR</strong>
+                      </div>
+                    </div>
+
+                    {/* Explanations: WHY THIS WINDOW? vs WHY REJECTED? */}
+                    {isRecommended || isFeasible ? (
+                      <div className="p-3 rounded-xl bg-emerald-50/80 border border-emerald-200 text-[11px] font-sans text-emerald-950 space-y-1">
+                        <span className="font-bold font-mono text-[10px] uppercase text-emerald-800 block">
+                          WHY THIS WINDOW?
+                        </span>
+                        <p className="leading-snug">{cand.reason}</p>
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-rose-50/80 border border-rose-200 text-[11px] font-sans text-rose-950 space-y-1">
+                        <span className="font-bold font-mono text-[10px] uppercase text-rose-800 block">
+                          WHY REJECTED?
+                        </span>
+                        <p className="leading-snug">{cand.reason}</p>
+                        {cand.conflictingTrain && (
+                          <div className="mt-1 pt-1 border-t border-rose-200 text-[10px] font-mono text-rose-700 font-semibold">
+                            ⚠️ Conflicting Rake: {cand.conflictingTrain.trainNumber} {cand.conflictingTrain.trainName} ({cand.conflictingTrain.estimatedArrivalAtKm})
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Card Action Buttons */}
+                  <div className="pt-2 border-t border-neutral-200/80">
+                    {isRecommended ? (
+                      state.currentUser.role === 'Planning Officer' ? (
+                        <button
+                          onClick={() => sendToControl(activeReq.id, `Recommended candidate window ${cand.startTime}–${cand.endTime} accepted by Planning Officer`)}
+                          className="w-full py-2.5 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                          title="Submit recommended window to Operating Control"
+                        >
+                          <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                          <span>ACCEPT RECOMMENDATION</span>
+                        </button>
+                      ) : state.currentUser.role === 'COA / Operations' ? (
+                        <button
+                          onClick={() => authorizeAndScheduleBlock(activeReq.id, `Possession officially authorized in recommended candidate window ${cand.startTime}–${cand.endTime} by Operating Control`)}
+                          className="w-full py-2.5 px-3 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                          title="Authorize and schedule in recommended window"
+                        >
+                          <CheckCircle2 className="w-4 h-4 text-purple-200" />
+                          <span>AUTHORIZE IN THIS WINDOW</span>
+                        </button>
+                      ) : state.currentUser.role === 'MASTER' ? (
+                        <button
+                          onClick={() => authorizeAndScheduleBlock(activeReq.id, `Administrative override: Authorized in candidate window ${cand.startTime}–${cand.endTime}`)}
+                          className="w-full py-2.5 px-3 rounded-xl bg-neutral-900 hover:bg-black text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-4 h-4 text-amber-300" />
+                          <span>AUTHORIZE (MASTER OVERRIDE)</span>
+                        </button>
+                      ) : (
+                        <div className="w-full py-2 px-2 text-center text-[11px] font-mono text-neutral-500 bg-neutral-100 rounded-xl">
+                          Recommendation Pending Operating Control
+                        </div>
+                      )
+                    ) : isFeasible ? (
+                      <button
+                        onClick={() => rescheduleBlock(activeReq.id, cand.startTime, cand.endTime, `Officer selected alternative candidate window ${cand.slotId}: ${cand.startTime}–${cand.endTime}`)}
+                        className="w-full py-2.5 px-3 rounded-xl bg-white border border-sky-400 hover:bg-sky-50 text-sky-800 font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer"
+                      >
+                        <ArrowRight className="w-4 h-4 text-sky-600" />
+                        <span>CHOOSE THIS WINDOW</span>
+                      </button>
+                    ) : (
+                      <button
+                        disabled={true}
+                        className="w-full py-2.5 px-3 rounded-xl bg-neutral-100 border border-neutral-200 text-neutral-400 font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 text-neutral-400" />
+                        <span>CANNOT SCHEDULE (CONFLICT)</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* CONTEXTUAL CORRIDOR TRAFFIC PANEL */}
+          <div className="p-4 rounded-2xl bg-neutral-900 text-white border border-neutral-800 space-y-3 font-mono text-xs shadow-md">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 pb-2.5">
+              <div className="flex items-center space-x-2">
+                <Activity className="w-4 h-4 text-cyan-400 animate-pulse" />
+                <span className="font-bold text-slate-100 tracking-wide">
+                  CONTEXTUAL CORRIDOR TRAFFIC · APPROACHING MOVEMENTS
+                </span>
+                <span className="text-[10px] text-neutral-400">
+                  ({activeReq.section} · {activeReq.affectedTracks?.join(', ') || 'UP Main'})
+                </span>
+              </div>
+
+              <div className="flex items-center space-x-2 text-[10px]">
+                <span className="text-neutral-400">TELEMETRY:</span>
+                <span className={`px-2 py-0.5 rounded font-bold ${
+                  state.liveData.source === 'LIVE'
+                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                    : 'bg-amber-950 text-amber-300 border border-amber-500/40'
+                }`}>
+                  {state.liveData.source === 'LIVE' ? 'RailRadar™ Live Telemetry' : 'Simulated Timetable Movements'}
+                </span>
+              </div>
+            </div>
+
+            {contextualTrains.length === 0 ? (
+              <div className="text-center py-4 text-neutral-500 text-xs">
+                No active train movements currently approaching this section corridor.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {contextualTrains.map(t => {
+                  const isThreat = t.distanceKm < 8.0;
+                  const isNear = t.distanceKm < 20.0;
+
+                  return (
+                    <div
+                      key={t.trainNumber}
+                      className={`p-3 rounded-xl border flex flex-col justify-between space-y-1.5 ${
+                        isThreat
+                          ? 'bg-red-950/40 border-red-500/50 text-red-200'
+                          : isNear
+                          ? 'bg-amber-950/30 border-amber-500/40 text-amber-200'
+                          : 'bg-slate-950/60 border-slate-800 text-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-1.5">
+                          <Train className="w-3.5 h-3.5 text-cyan-400" />
+                          <strong className="text-white text-xs">{t.trainNumber}</strong>
+                          <span className="text-[10px] opacity-80">{t.direction}</span>
+                        </div>
+                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                          isThreat
+                            ? 'bg-red-900 text-red-100'
+                            : isNear
+                            ? 'bg-amber-900 text-amber-100'
+                            : 'bg-emerald-950 text-emerald-300 border border-emerald-700/50'
+                        }`}>
+                          {isThreat ? '⚠️ HAZARD ZONE' : isNear ? '⚡ APPROACHING' : '✓ CLEAR HEADWAY'}
+                        </span>
+                      </div>
+
+                      <div className="text-[11px] truncate text-slate-200">
+                        {t.trainName}
+                      </div>
+
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-white/10">
+                        <span>Speed: <strong className="text-white">{t.speedKmph} km/h</strong></span>
+                        <span>Delay: <strong className={t.delayMinutes > 0 ? 'text-amber-400' : 'text-emerald-400'}>
+                          {t.delayMinutes > 0 ? `+${t.delayMinutes}m` : 'RT'}
+                        </strong></span>
+                        <span>ETA: <strong className="text-cyan-300">{t.dynamicEtaMinutes}m ({t.distanceKm}km)</strong></span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 2.3 SYSTEM RECOMMENDATIONS & HUMAN AUTHORIZATION GATE (Prompt Section 7 & 8 Specification) */}
       {state.requests.filter(r => r.status === 'Block Window Allocated').length > 0 && (
@@ -857,6 +1248,283 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
                 className="px-5 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
               >
                 Confirm Permanent Deletion
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CANDIDATE WINDOW COMPARISON MODAL */}
+      {isCompareModalOpen && activeReq && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-4xl w-full border border-railway-border shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-railway-border pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-800 flex items-center justify-center border border-emerald-200">
+                  <TableIcon className="w-5 h-5 text-emerald-700" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono font-bold uppercase text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                    DECISION COMPARISON MATRIX
+                  </span>
+                  <h3 className="text-xl font-bold text-railway-textPrimary mt-0.5 font-sans">
+                    Candidate Window Comparative Evaluation
+                  </h3>
+                  <p className="text-xs text-neutral-500 font-mono">
+                    {activeReq.id} · {activeReq.work} ({activeReq.department} · {activeReq.section} · Required: {activeReq.duration} min)
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsCompareModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center text-neutral-500 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Comparison Table */}
+            <div className="overflow-x-auto rounded-2xl border border-railway-border">
+              <table className="w-full text-xs font-mono text-left">
+                <thead className="bg-neutral-100/90 text-neutral-600 border-b border-railway-border uppercase text-[10px]">
+                  <tr>
+                    <th className="p-3">Candidate Slot</th>
+                    <th className="p-3">Time Window</th>
+                    <th className="p-3">Duration (Avail / Req)</th>
+                    <th className="p-3">Safety Margin</th>
+                    <th className="p-3">Conflict Status</th>
+                    <th className="p-3">Recommendation Status</th>
+                    <th className="p-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-railway-border">
+                  {(activeReqAnalysis?.candidateWindows || []).map((cand, idx) => {
+                    const isRecommended = Boolean(cand.isRecommended);
+                    const isFeasible = cand.status === 'FEASIBLE';
+                    const isConflict = cand.status === 'CONFLICT';
+                    const slotName = idx === 0 ? 'Early Morning' : idx === 1 ? 'Optimal Corridor' : 'Afternoon';
+
+                    return (
+                      <tr 
+                        key={cand.slotId}
+                        className={`hover:bg-neutral-50/80 transition ${
+                          isRecommended ? 'bg-emerald-50/40 font-semibold' : ''
+                        }`}
+                      >
+                        <td className="p-3">
+                          <strong className="text-neutral-900 block">{cand.slotId}</strong>
+                          <span className="text-[10px] text-neutral-500 font-sans">{slotName}</span>
+                        </td>
+                        <td className="p-3 text-neutral-800 font-bold">
+                          {cand.startTime} – {cand.endTime} IST
+                        </td>
+                        <td className="p-3">
+                          <span className="text-neutral-800">{cand.durationMinutes}m</span>
+                          <span className="text-neutral-400"> / {activeReq.duration}m</span>
+                        </td>
+                        <td className="p-3 text-emerald-700">
+                          +15m G&amp;SR Headway
+                        </td>
+                        <td className="p-3">
+                          {isConflict ? (
+                            <span className="text-rose-700 font-bold flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3 text-rose-600" />
+                              <span>1 Violation</span>
+                            </span>
+                          ) : (
+                            <span className="text-emerald-700 font-bold flex items-center gap-1">
+                              <Check className="w-3 h-3" />
+                              <span>0 Conflicts</span>
+                            </span>
+                          )}
+                          <div className="text-[10px] text-neutral-500 font-sans max-w-xs truncate" title={cand.reason}>
+                            {cand.reason}
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          {isRecommended ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white">
+                              RECOMMENDED
+                            </span>
+                          ) : isFeasible ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-900 border border-sky-300">
+                              FEASIBLE
+                            </span>
+                          ) : isConflict ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
+                              CONFLICT
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                              INSUFFICIENT
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 text-right">
+                          {isRecommended ? (
+                            <button
+                              onClick={() => {
+                                setIsCompareModalOpen(false);
+                                if (state.currentUser.role === 'Planning Officer') {
+                                  sendToControl(activeReq.id, `Recommended window ${cand.startTime}–${cand.endTime} accepted by Planning Officer`);
+                                } else if (state.currentUser.role === 'COA / Operations' || state.currentUser.role === 'MASTER') {
+                                  authorizeAndScheduleBlock(activeReq.id, `Possession authorized in recommended window ${cand.startTime}–${cand.endTime}`);
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-[11px] shadow-2xs transition cursor-pointer"
+                            >
+                              Accept Recommended
+                            </button>
+                          ) : isFeasible ? (
+                            <button
+                              onClick={() => {
+                                rescheduleBlock(activeReq.id, cand.startTime, cand.endTime, `Officer selected alternative candidate window ${cand.slotId}`);
+                                setIsCompareModalOpen(false);
+                              }}
+                              className="px-3 py-1.5 rounded-full bg-white border border-sky-400 hover:bg-sky-50 text-sky-800 font-bold text-[11px] shadow-2xs transition cursor-pointer"
+                            >
+                              Choose Window
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-neutral-400 italic">
+                              Ineligible
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-railway-border">
+              <span className="text-xs text-neutral-500 font-sans">
+                G&amp;SR Operational Rule: System recommendations do not replace human controller verification.
+              </span>
+              <button
+                onClick={() => setIsCompareModalOpen(false)}
+                className="px-5 py-2 rounded-full border border-railway-border hover:bg-neutral-100 text-xs font-semibold text-neutral-700 cursor-pointer"
+              >
+                Close Comparison
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MANUAL WINDOW OVERRIDE MODAL (Section 21 of Specification) */}
+      {manualOverrideModalReqId && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full border border-railway-border shadow-2xl space-y-5">
+            <div className="flex items-start justify-between border-b border-railway-border pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center border border-amber-300">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono font-bold uppercase text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-300">
+                    MANUAL OPERATIONAL OVERRIDE
+                  </span>
+                  <h3 className="text-lg font-bold text-railway-textPrimary mt-0.5 font-sans">
+                    Override Recommended Window
+                  </h3>
+                  <p className="text-xs text-neutral-500 font-mono">
+                    Target: {manualOverrideModalReqId}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setManualOverrideModalReqId(null)}
+                className="w-7 h-7 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center text-neutral-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 text-xs font-sans space-y-1">
+              <strong>Audit Ledger Notice:</strong>
+              <p>
+                Manual override preserves the original system recommendation in the permanent audit ledger and requires an authorized officer operational justification.
+              </p>
+            </div>
+
+            <div className="space-y-3 font-mono text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] uppercase text-neutral-500 font-bold mb-1">
+                    Override Start (IST)
+                  </label>
+                  <input
+                    type="time"
+                    value={manualOverrideStart}
+                    onChange={(e) => setManualOverrideStart(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-railway-border bg-railway-canvas text-sm font-bold font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase text-neutral-500 font-bold mb-1">
+                    Override End (IST)
+                  </label>
+                  <input
+                    type="time"
+                    value={manualOverrideEnd}
+                    onChange={(e) => setManualOverrideEnd(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-railway-border bg-railway-canvas text-sm font-bold font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase text-neutral-700 font-bold mb-1">
+                  Mandatory Operational Justification (Reason):
+                </label>
+                <textarea
+                  rows={3}
+                  value={manualOverrideReason}
+                  onChange={(e) => {
+                    setManualOverrideReason(e.target.value);
+                    if (e.target.value.trim().length >= 8) setManualOverrideError('');
+                  }}
+                  placeholder="e.g. Approved by Sr.DOM: Emergency night possession required due to morning express bunching..."
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-railway-canvas border border-railway-border text-xs font-sans text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                />
+                {manualOverrideError && (
+                  <span className="text-[11px] text-rose-600 font-sans font-semibold mt-1 block">
+                    ⚠️ {manualOverrideError}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 pt-2 border-t border-railway-border">
+              <button
+                type="button"
+                onClick={() => setManualOverrideModalReqId(null)}
+                className="px-4 py-2 rounded-full border border-railway-border text-xs font-semibold text-neutral-700 hover:bg-neutral-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!manualOverrideReason.trim() || manualOverrideReason.trim().length < 8) {
+                    setManualOverrideError('Mandatory: Please provide a substantive operational justification (minimum 8 characters).');
+                    return;
+                  }
+                  recordManualOverride(
+                    manualOverrideModalReqId,
+                    manualOverrideStart,
+                    manualOverrideEnd,
+                    manualOverrideReason.trim()
+                  );
+                  setManualOverrideModalReqId(null);
+                }}
+                className="px-6 py-2 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+              >
+                Confirm Manual Override
               </button>
             </div>
           </div>

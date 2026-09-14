@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "server": "tsx server/index.ts",
+    "server": "tsx watch server/index.ts",
     "dev:all": "concurrently \"npm run server\" \"npm run dev\"",
     "build:client": "tsc && vite build",
     "build:server": "tsc -p tsconfig.server.json",
@@ -15,11 +15,13 @@
     "test": "node test/test_core_engines.mjs"
   },
   "dependencies": {
+    "@types/leaflet": "^1.9.22",
     "clsx": "^2.1.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "firebase": "^12.19.0",
+    "leaflet": "^1.9.4",
     "lucide-react": "^0.475.0",
     "tailwind-merge": "^3.0.1",
     "three": "^0.173.0"

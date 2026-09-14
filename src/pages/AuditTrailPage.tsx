@@ -29,11 +29,11 @@ export const AuditTrailPage: React.FC = () => {
               <History className="w-4 h-4" />
             </div>
             <h1 className="text-3xl font-bold tracking-tight text-railway-textPrimary font-sans">
-              Immutable Operations Audit Trail
+              Audit Trail
             </h1>
           </div>
           <p className="text-sm text-railway-textSecondary mt-1">
-            Chronological, non-repudiable ledger of all maintenance block applications, operating concurrences, and line possession memos.
+            Chronological Operations & Dispatch Ledger
           </p>
         </div>
 

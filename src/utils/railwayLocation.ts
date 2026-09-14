@@ -100,7 +100,7 @@ export function validateKmRange(
   startKm: number, 
   endKm: number, 
   minCorridorKm: number = 0.0, 
-  maxCorridorKm: number = 80.0
+  maxCorridorKm: number = 3000.0
 ): { isValid: boolean; errorMessage?: string } {
   if (isNaN(startKm) || isNaN(endKm)) {
     return { isValid: false, errorMessage: 'Please enter valid Start and End KM chainage numbers.' };
@@ -109,7 +109,7 @@ export function validateKmRange(
   if (startKm < minCorridorKm || endKm > maxCorridorKm) {
     return {
       isValid: false,
-      errorMessage: `Location outside configured railway infrastructure (KM ${minCorridorKm.toFixed(3)} – KM ${maxCorridorKm.toFixed(3)}). Please enter a valid corridor KM.`
+      errorMessage: `Location outside configured railway infrastructure (KM ${minCorridorKm.toFixed(3)} – KM ${maxCorridorKm.toFixed(3)}). Please enter a valid railway KM.`
     };
   }
 

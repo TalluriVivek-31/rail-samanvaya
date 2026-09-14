@@ -23,6 +23,7 @@ export interface User {
 
 export type SamnvayPage = 
   | 'overview' 
+  | 'twin'
   | 'live-trains'
   | 'requests' 
   | 'approval' 
@@ -36,8 +37,35 @@ export type Department = 'P.Way' | 'S&T' | 'TRD';
 
 export type BlockPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
+export type OperationalBlockStatus = 
+  | 'DRAFT' 
+  | 'SUBMITTED' 
+  | 'DEPARTMENT_APPROVED' 
+  | 'PLANNING' 
+  | 'RECOMMENDED' 
+  | 'PLAN_APPROVED' 
+  | 'BLOCK_REQUESTED' 
+  | 'AUTHORIZED' 
+  | 'SCHEDULED' 
+  | 'IMPOSED' 
+  | 'WORK_STARTED' 
+  | 'WORK_IN_PROGRESS' 
+  | 'BLOCK_WINDOW_ENDING' 
+  | 'COMPLETION_REPORT_REQUIRED' 
+  | 'COMPLETED' 
+  | 'PARTIALLY_COMPLETED' 
+  | 'NOT_COMPLETED' 
+  | 'BLOCK_RETURNED' 
+  | 'RESTORATION_PENDING' 
+  | 'RESTRICTED' 
+  | 'NORMAL_RESTORED' 
+  | 'CLOSED' 
+  | 'CANCELLED';
+
 export type BlockStatus = 
-  // 17 Deterministic Sequential Lifecycle States
+  // 23 Deterministic Operational Lifecycle States (Uppercase Railway Lifecycle Standard)
+  | OperationalBlockStatus
+  // Existing Sequential & Branching States for Backwards Compatibility
   | 'Draft' 
   | 'Submitted' 
   | 'P.Way/S&T/TRD Review' 
@@ -55,18 +83,90 @@ export type BlockStatus =
   | 'Block Release Requested' 
   | 'Block Released' 
   | 'Closed'
-  // Exception & Operational Branching States
-  | 'Pending'  // Legacy compatibility alias
-  | 'Review'   // Legacy compatibility alias
-  | 'Planning' // Legacy compatibility alias
-  | 'Active'   // Legacy compatibility alias
-  | 'Completed'// Legacy compatibility alias
+  | 'Pending'
+  | 'Review'
+  | 'Planning'
+  | 'Active'
+  | 'Completed'
   | 'Rejected' 
   | 'Revision' 
   | 'Revision Required'
   | 'Delayed / Headway Conflict'
   | 'Unsafe / Cancelled'
   | 'Rescheduled';
+
+export interface PossessionDurationBreakdown {
+  mobilisation_duration: number; // minutes (e.g. 20m)
+  setup_duration: number;        // minutes (e.g. 15m)
+  work_duration: number;         // pure maintenance work minutes (e.g. 75m)
+  clearance_duration: number;    // minutes (e.g. 10m)
+  restoration_duration: number;  // minutes (e.g. 20m)
+  total_required_duration: number; // total operational window required (e.g. 140m)
+}
+
+export interface StructuredResources {
+  staff_required: number;
+  machine_required: string[];     // e.g. ["Track Machine TM-04"]
+  equipment_required: string[];
+  materials_required: string[];
+  resource_ids: string[];
+}
+
+export interface ResponsibleOfficial {
+  employee_id: string;
+  name: string;
+  role: string;                  // e.g. "JE", "SSE", "Sr. DEN"
+  department: Department;
+}
+
+export interface MaintenanceRequirement {
+  id: string; // e.g. REQ-102
+  department: Department;
+  work: string;
+  workCategory: string;
+  assetId?: string;
+  assetName?: string;
+  sectionId?: string;
+  sectionName?: string;
+  startLocation: string; // e.g. "KM 12/400"
+  endLocation: string;   // e.g. "KM 13/100"
+  startKm: number;
+  endKm: number;
+  lineName?: string;
+  affectedTracks: string[];
+  adjacent_line_affected?: boolean;
+  
+  // Durations
+  estimatedWorkDuration: number; // Pure work duration in minutes
+  possessionBreakdown: PossessionDurationBreakdown;
+  
+  // Facilities
+  trafficBlockRequired: boolean;
+  powerBlockRequired: boolean;
+  sntDisconnectionRequired: boolean;
+  integratedBlockRequired: boolean;
+  
+  // Protection & Safety
+  safety_requirements: string[];
+  protection_requirements: string[];
+  operational_restriction_required?: boolean;
+  
+  // Resources
+  resources: StructuredResources;
+  responsible_officer: ResponsibleOfficial;
+  
+  status: BlockStatus;
+  priority: BlockPriority;
+  priorityScore: number;
+  priorityBreakdown: PriorityBreakdown;
+  
+  preferredDate?: string;
+  earliestStart?: string;
+  latestFinish?: string;
+  
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface StatusHistoryEntry {
   status: BlockStatus;
@@ -208,23 +308,81 @@ export interface BlockRequest {
   remainingDuration?: number;
   childBlockIds?: string[];
   parentRequirementId?: string;
+  maintenance_requirement_id?: string;
+  block_request_id?: string;
+  original_maintenance_requirement_id?: string;
+  original_block_request_id?: string;
+  original_block_plan_id?: string;
+  previous_execution_id?: string;
+  block_type?: 'TRAFFIC_BLOCK' | 'POWER_BLOCK' | 'SNT_DISCONNECTION' | 'INTEGRATED_BLOCK';
+
   // Planned vs Actual Tracking (Indian Railways Operational Accountability)
+  requested_start?: string;
+  requested_end?: string;
+  requested_duration?: number;
   planned_start?: string;
   planned_end?: string;
   planned_duration?: number;
+  authorized_start?: string;
+  authorized_end?: string;
+  authorized_duration?: number;
+  actual_imposition_time?: string;
   actual_start?: string;
   actual_end?: string;
+  actual_return_time?: string;
   actual_duration?: number;
   actual_work_completion?: string; // Physical work completion timestamp
   actual_block_release?: string;    // Operational block release timestamp
   duration_variance?: number; // actual_duration - planned_duration (minutes)
 
   // Granular Possession Breakdown (Section 12 of specification)
+  mobilisation_duration?: number; // minutes
+  setup_duration?: number;        // minutes
   protection_setup_time?: number; // minutes (e.g. 15m)
   work_duration?: number; // minutes (e.g. 90m)
+  clearance_duration?: number;    // minutes
   verification_inspection_time?: number; // minutes (e.g. 10m)
   track_restoration_time?: number; // minutes (e.g. 15m)
+  restoration_duration?: number;  // minutes
+  total_required_duration?: number;
   total_possession_required?: number; // Total required possession duration
+  possessionBreakdown?: PossessionDurationBreakdown;
+
+  // Facilities
+  integratedBlockRequired?: boolean;
+
+  // Safety, Protection & Infrastructure Details
+  safety_requirements?: string[];
+  protection_requirements?: string[];
+  adjacent_line_affected?: boolean;
+  line_affected?: string;
+  track_affected?: string;
+  operational_restriction_required?: boolean;
+
+  // Structured Resources
+  staff_required?: number;
+  machine_required?: string[];
+  equipment_required?: string[];
+  materials_required?: string[];
+  resource_ids?: string[];
+  resources?: StructuredResources;
+
+  // Responsible Official
+  responsible_officer?: ResponsibleOfficial;
+  responsible_employee_id?: string;
+  responsible_role?: string;
+
+  // Operational Records (Permit-to-work and Return - Prototype / Simulated)
+  permit_to_work_time?: string;
+  permit_to_work_private_number?: string;
+  return_time?: string;
+  return_private_number?: string;
+  isSimulatedPrivateNumber?: boolean;
+
+  // Work Status & Operational Condition
+  work_status?: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'PARTIALLY_COMPLETED' | 'NOT_COMPLETED';
+  operational_condition?: InfrastructureCondition;
+  restoration_status?: 'NOT_REQUIRED' | 'PENDING' | 'VERIFIED_RESTORED';
 
   // Infrastructure Condition & Restoration Lifecycle (Section 3, 4 of specification)
   infrastructureCondition?: InfrastructureCondition;
@@ -314,6 +472,8 @@ export interface LiveTrainPosition {
   expectedArrival: string;
   currentKm: number;
   distanceTravelledKm?: number;
+  latitude?: number;
+  longitude?: number;
   speedKmph: number;
   platform?: number | null;
   status: 'RUNNING' | 'AT_PLATFORM' | 'DEPARTED' | 'CANCELLED' | 'DIVERTED' | 'NOT_STARTED' | 'SCHEDULED' | string;
@@ -395,6 +555,7 @@ export type InfrastructureCondition =
   | 'NORMAL' 
   | 'RESTRICTED' 
   | 'RESTORATION_PENDING' 
+  | 'NORMAL_RESTORED'
   | 'UNAVAILABLE' 
   | 'UNDER_MAINTENANCE';
 

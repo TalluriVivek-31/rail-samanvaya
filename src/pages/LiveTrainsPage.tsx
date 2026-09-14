@@ -11,18 +11,68 @@ import {
   ShieldCheck, 
   Gauge, 
   Calendar, 
-  ExternalLink 
+  ExternalLink,
+  Layers,
+  Map as MapIcon,
+  LayoutGrid
 } from 'lucide-react';
 import { useSamnvayStore } from '../store/useSamnvayStore';
 import { useCorridorTrains, useStationBoard, useLiveTrainSearch } from '../hooks/useRailRadar';
-import { STATIONS } from '../data/corridorData';
-import { useLiveClock, formatIndianTime, formatDelay } from '../utils/dateTime';
 import type { LiveTrainPosition, StationBoardEntry } from '../types/samnvay';
+import { DigitalTwinMap } from '../components/twin/DigitalTwinMap';
+import { RealRailwayMap } from '../components/twin/RealRailwayMap';
+import { checkRailRadarHealth, RailRadarHealthStatus } from '../services/railRadarClient';
+import { useLiveClock, formatIndianTime, formatDelay } from '../utils/dateTime';
+
+const MAJOR_STATION_CHIPS = [
+  { code: 'BZA', name: 'Vijayawada' },
+  { code: 'NDLS', name: 'New Delhi' },
+  { code: 'HWH', name: 'Howrah' },
+  { code: 'MAS', name: 'Chennai' },
+  { code: 'SC', name: 'Secunderabad' },
+  { code: 'MMCT', name: 'Mumbai' },
+  { code: 'BPP', name: 'Bapatla' },
+  { code: 'CLX', name: 'Chirala' },
+];
 
 export const LiveTrainsPage: React.FC = () => {
   const { state, toggleLiveMode, updateLiveTrains, updateStationBoard } = useSamnvayStore();
-  const [selectedStation, setSelectedStation] = useState<string>('BPP');
+  const [selectedStation, setSelectedStation] = useState<string>('BZA');
   const [searchQuery, setSearchQuery] = useState('');
+  const [liveViewMode, setLiveViewMode] = useState<'real-map' | 'twin' | 'table'>('real-map');
+  const [healthStatus, setHealthStatus] = useState<RailRadarHealthStatus | null>(null);
+
+  // Station Electronic Display Board Dynamic Search State
+  const [boardSearchQuery, setBoardSearchQuery] = useState('');
+  const [boardSearchSuggestions, setBoardSearchSuggestions] = useState<Array<{ name: string; railway_ref: string; zone: string }>>([]);
+  const [isSearchingBoardStation, setIsSearchingBoardStation] = useState(false);
+  const [isBoardSearchOpen, setIsBoardSearchOpen] = useState(false);
+
+  useEffect(() => {
+    if (!boardSearchQuery.trim()) {
+      setBoardSearchSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearchingBoardStation(true);
+      try {
+        const res = await fetch(`/api/infrastructure/stations/search?q=${encodeURIComponent(boardSearchQuery.trim())}&limit=6`);
+        const json = await res.json();
+        if (json.success && json.data) {
+          setBoardSearchSuggestions(json.data);
+        }
+      } catch (err) {
+        console.error('Failed to search stations for display board', err);
+      } finally {
+        setIsSearchingBoardStation(false);
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [boardSearchQuery]);
+
+  useEffect(() => {
+    checkRailRadarHealth().then(setHealthStatus);
+  }, [state.isLiveMode]);
 
   // True runtime current clock (Asia/Kolkata IST) updating every second
   const { formattedDateTime: currentLiveDateTime } = useLiveClock(1000);
@@ -96,30 +146,50 @@ export const LiveTrainsPage: React.FC = () => {
                 <TrainTrack className="w-5 h-5 text-railway-forest" />
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-railway-textPrimary">
-                RailRadar™ Live Movement Stream
+                Live Trains
               </h1>
             </div>
             <p className="text-sm text-railway-textSecondary max-w-2xl">
-              Corridor telemetry feed for the Vijayawada (BZA) Division trunk route. Real-time section passage, dynamic headway, and live platform displays.
+              National Rail Movement Telemetry
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            {/* Data Source Pill */}
-            {source === 'LIVE' ? (
-              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-emerald-50 text-emerald-700 border-emerald-200 shadow-xs">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                FEED: LIVE RAILRADAR
-              </div>
-            ) : source === 'UNAVAILABLE' ? (
-              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-red-50 text-red-700 border-red-200 shadow-xs">
-                <span className="w-2 h-2 rounded-full bg-red-500" />
-                FEED: LIVE DATA UNAVAILABLE
-              </div>
-            ) : (
+            {/* Granular Data Source & Health Pill */}
+            {!state.isLiveMode ? (
               <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-amber-50 text-amber-700 border-amber-200 shadow-xs">
                 <span className="w-2 h-2 rounded-full bg-amber-500" />
-                FEED: DEMO TIMETABLE
+                <span>RAILRADAR ● DEMO TIMETABLE</span>
+              </div>
+            ) : source === 'LIVE' ? (
+              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-emerald-50 text-emerald-700 border-emerald-200 shadow-xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>RAILRADAR ● LIVE TELEMETRY</span>
+              </div>
+            ) : healthStatus?.failureState === 'NOT_CONFIGURED' ? (
+              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-amber-50 text-amber-700 border-amber-200 shadow-xs">
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <span>RAILRADAR ● NOT CONFIGURED</span>
+              </div>
+            ) : healthStatus?.failureState === 'BACKEND_UNAVAILABLE' ? (
+              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-rose-50 text-rose-700 border-rose-200 shadow-xs">
+                <span className="w-2 h-2 rounded-full bg-rose-500" />
+                <span>RAILRADAR ● BACKEND UNAVAILABLE</span>
+              </div>
+            ) : healthStatus?.failureState === 'AUTHENTICATION_FAILED' ? (
+              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-rose-50 text-rose-700 border-rose-200 shadow-xs">
+                <span className="w-2 h-2 rounded-full bg-rose-500" />
+                <span>RAILRADAR ● AUTH FAILED</span>
+              </div>
+            ) : healthStatus?.providerStatus === 'rate_limited' || healthStatus?.httpStatus === 429 ? (
+              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-amber-50 text-amber-800 border-amber-300 shadow-xs" title="Upstream quota of 1000 monthly requests exceeded">
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <span>RAILRADAR ● RATE LIMITED (429)</span>
+              </div>
+            ) : (
+              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-rose-50 text-rose-700 border-rose-200 shadow-xs">
+                <span className="w-2 h-2 rounded-full bg-rose-500" />
+                <span>RAILRADAR ● UNAVAILABLE</span>
               </div>
             )}
 
@@ -149,6 +219,45 @@ export const LiveTrainsPage: React.FC = () => {
               <RefreshCw className={`w-3.5 h-3.5 ${(isLoading || isStationLoading) ? 'animate-spin text-railway-forest' : 'text-railway-textSecondary'}`} />
               <span>Refresh Feed</span>
             </button>
+
+            {/* View Mode Switcher: Real Railway Map (Primary) vs 3D Twin vs Tabular Grid */}
+            <div className="flex items-center p-1 bg-neutral-100 rounded-full border border-neutral-200 text-xs font-semibold">
+              <button
+                onClick={() => setLiveViewMode('real-map')}
+                className={`px-3 py-1.5 rounded-full transition flex items-center gap-1.5 ${
+                  liveViewMode === 'real-map'
+                    ? 'bg-emerald-600 text-white shadow-xs font-bold'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+                title="Real geographic Indian Railways network map powered by OpenRailwayMap & OSM geometry"
+              >
+                <MapIcon className="w-3.5 h-3.5" />
+                <span>Real Railway Map (Primary)</span>
+              </button>
+              <button
+                onClick={() => setLiveViewMode('twin')}
+                className={`px-3 py-1.5 rounded-full transition flex items-center gap-1.5 ${
+                  liveViewMode === 'twin'
+                    ? 'bg-white text-railway-forest shadow-xs font-bold'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+                title="Tactical corridor digital twin representation"
+              >
+                <Layers className="w-3.5 h-3.5 text-cyan-600" />
+                <span>3D Twin (Secondary)</span>
+              </button>
+              <button
+                onClick={() => setLiveViewMode('table')}
+                className={`px-3 py-1.5 rounded-full transition flex items-center gap-1.5 ${
+                  liveViewMode === 'table'
+                    ? 'bg-white text-railway-forest shadow-xs font-bold'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5 text-neutral-500" />
+                <span>Radar Grid</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -219,14 +328,16 @@ export const LiveTrainsPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
             <div>
-              <span><strong>Live Telemetry Notice:</strong> {corridorError}</span>
-              {state.isLiveMode && (
-                <p className="text-[11px] text-amber-700 mt-0.5 font-sans">
-                  {corridorError.toLowerCase().includes('backend') || corridorError.toLowerCase().includes('500') || corridorError.toLowerCase().includes('network')
-                    ? 'Express backend proxy connection unreachable. Ensure both Vite and Express are running via npm run dev:all.'
-                    : 'Live telemetry unavailable. Switch to Demo Timetable or check RAILRADAR_API_KEY configuration in .env.'}
-                </p>
-              )}
+              <span className="font-mono font-bold">
+                {healthStatus?.providerStatus === 'rate_limited' || healthStatus?.httpStatus === 429 || corridorError.includes('429')
+                  ? 'RAILRADAR RATE LIMITED (429):'
+                  : 'RAILRADAR NOTICE:'}
+              </span>{' '}
+              <span className="text-amber-800">
+                {healthStatus?.providerStatus === 'rate_limited' || healthStatus?.httpStatus === 429 || corridorError.includes('429')
+                  ? 'Monthly quota reached. Switch to Demo mode for simulated telemetry.'
+                  : healthStatus?.message || corridorError}
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -250,7 +361,51 @@ export const LiveTrainsPage: React.FC = () => {
         </div>
       )}
 
-      {/* 2. Interactive Train Search */}
+      {/* 2. Primary Real Railway Map (Default) or Secondary Twin */}
+      {liveViewMode === 'real-map' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <h2 className="text-base font-bold text-railway-textPrimary">
+                All-India Real Railway Network Map
+              </h2>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-50 text-emerald-700 font-semibold border border-emerald-300">
+                PRIMARY OPERATIONAL LAYER
+              </span>
+            </div>
+            <span className="text-xs font-mono text-railway-textSecondary">
+              OpenRailwayMap / OSM-Derived Infrastructure Geometry & RailRadar Live Telemetry
+            </span>
+          </div>
+          <RealRailwayMap 
+            onStationSelect={(code) => setSelectedStation(code)}
+            selectedStationCode={selectedStation}
+          />
+        </div>
+      )}
+
+      {liveViewMode === 'twin' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-500 animate-pulse" />
+              <h2 className="text-base font-bold text-railway-textPrimary">
+                Corridor Tactical Digital Twin
+              </h2>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-50 text-cyan-700 font-semibold border border-cyan-300">
+                SECONDARY TACTICAL VIEW
+              </span>
+            </div>
+            <span className="text-xs font-mono text-railway-textSecondary">
+              Map-matched WGS84 railway track geometry & possession hazards
+            </span>
+          </div>
+          <DigitalTwinMap />
+        </div>
+      )}
+
+      {/* 3. Interactive Train Search */}
       <div className="bg-white rounded-3xl p-6 sm:p-7 border border-railway-border shadow-soft">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
           <div>
@@ -379,8 +534,8 @@ export const LiveTrainsPage: React.FC = () => {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-railway-textPrimary flex items-center gap-2">
-              <span>Vijayawada (BZA) Trunk Corridor Movements</span>
-              <span className="text-xs font-mono text-railway-textSecondary font-normal">(BPP – CLX – VTM)</span>
+              <span>Priority Railway Corridor Movements</span>
+              <span className="text-xs font-mono text-railway-textSecondary font-normal">(Configured Prototype: BPP – CLX – VTM)</span>
             </h2>
             <p className="text-xs text-railway-textSecondary">Real-time positions used by Constraint Engine for dynamic headway checks</p>
           </div>
@@ -493,22 +648,75 @@ export const LiveTrainsPage: React.FC = () => {
             <p className="text-xs text-railway-textSecondary">Live platform indicator synchronized with automatic block signalling feed</p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <label className="text-xs font-medium text-railway-textSecondary">Select Station:</label>
-            <div className="flex gap-1.5 bg-railway-canvas p-1 rounded-full border border-railway-border">
-              {STATIONS.map((stn: { code: string; name: string }) => (
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Quick Major Station Chips */}
+            <div className="flex flex-wrap gap-1 bg-railway-canvas p-1 rounded-2xl border border-railway-border">
+              {MAJOR_STATION_CHIPS.map((stn) => (
                 <button
                   key={stn.code}
-                  onClick={() => setSelectedStation(stn.code)}
-                  className={`px-3 py-1 text-xs font-mono font-semibold rounded-full transition-all ${
+                  onClick={() => {
+                    setSelectedStation(stn.code);
+                    setBoardSearchQuery('');
+                    setIsBoardSearchOpen(false);
+                  }}
+                  className={`px-2.5 py-1 text-xs font-mono font-semibold rounded-xl transition-all ${
                     selectedStation === stn.code
                       ? 'bg-railway-forest text-white shadow-xs'
                       : 'text-railway-textSecondary hover:text-railway-textPrimary'
                   }`}
+                  title={stn.name}
                 >
                   {stn.code}
                 </button>
               ))}
+            </div>
+
+            {/* Nationwide Dynamic Station Search */}
+            <div className="relative">
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-railway-canvas rounded-full border border-railway-border text-xs">
+                <Search className="w-3.5 h-3.5 text-railway-textSecondary" />
+                <input
+                  type="text"
+                  placeholder="Search station / code..."
+                  value={boardSearchQuery}
+                  onChange={(e) => {
+                    setBoardSearchQuery(e.target.value);
+                    setIsBoardSearchOpen(true);
+                  }}
+                  onFocus={() => setIsBoardSearchOpen(true)}
+                  className="bg-transparent text-railway-textPrimary placeholder:text-railway-textSecondary/60 focus:outline-none w-32 sm:w-44 font-mono text-xs"
+                />
+                {isSearchingBoardStation && (
+                  <RefreshCw className="w-3 h-3 text-railway-forest animate-spin" />
+                )}
+              </div>
+
+              {isBoardSearchOpen && boardSearchSuggestions.length > 0 && (
+                <div className="absolute right-0 top-full mt-1.5 w-64 bg-white rounded-2xl shadow-xl border border-railway-border p-1.5 z-50">
+                  <div className="text-[10px] font-mono text-railway-textSecondary px-2 py-1 font-semibold uppercase">
+                    National Stations ({boardSearchSuggestions.length})
+                  </div>
+                  {boardSearchSuggestions.map((stn) => (
+                    <button
+                      key={stn.railway_ref}
+                      onClick={() => {
+                        setSelectedStation(stn.railway_ref);
+                        setBoardSearchQuery('');
+                        setIsBoardSearchOpen(false);
+                      }}
+                      className="w-full text-left px-2.5 py-1.5 rounded-xl hover:bg-railway-canvas flex items-center justify-between text-xs transition"
+                    >
+                      <div>
+                        <div className="font-bold text-railway-textPrimary">{stn.name}</div>
+                        <div className="text-[10px] text-railway-textSecondary font-mono">{stn.zone} Zone</div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-railway-forest/10 text-railway-forest font-mono font-bold text-xs">
+                        {stn.railway_ref}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -566,12 +774,16 @@ export const LiveTrainsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 5. Safety & Operational Authority Disclaimer */}
-      <div className="p-4 rounded-2xl bg-railway-canvas border border-railway-border text-xs text-railway-textSecondary flex items-start gap-3">
-        <ShieldCheck className="w-5 h-5 text-railway-forest flex-shrink-0 mt-0.5" />
-        <div>
-          <strong className="text-railway-textPrimary font-semibold">Operational Advisory Notice: </strong>
-          RailRadar™ provides crowdsourced train telemetry and timetable data as an external advisory feed. Rail Samnvay uses this data exclusively for secondary conflict forecasting. All formal corridor disconnections, power blocks, and train dispatch authority remain strictly governed by the Section Controller and Station Master in accordance with Indian Railways General & Subsidiary Rules (G&SR).
+      {/* 5. System & Advisory Attribution Footer */}
+      <div className="p-3.5 rounded-2xl bg-railway-canvas border border-railway-border text-xs text-railway-textSecondary flex flex-wrap items-center justify-between gap-3 font-mono">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-railway-forest flex-shrink-0" />
+          <span className="font-bold text-railway-textPrimary">RAILRADAR ● LIVE • ADVISORY</span>
+          <span className="text-neutral-300">|</span>
+          <span className="text-railway-textMuted font-sans">External train telemetry used for planning assistance.</span>
+        </div>
+        <div className="text-[11px] text-railway-textMuted">
+          RAIL SAMNVAY · Decision Support • Railway Maintenance Planning
         </div>
       </div>
     </div>

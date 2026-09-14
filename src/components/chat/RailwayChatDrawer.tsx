@@ -167,7 +167,7 @@ export const RailwayChatDrawer: React.FC = () => {
                   Operational Communication
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-railway-forest/10 text-railway-forest uppercase">
-                  BZA DIVISION
+                  INDIAN RAILWAYS
                 </span>
               </div>
               <p className="text-[10px] font-mono text-railway-textMuted uppercase">

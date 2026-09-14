@@ -37,7 +37,7 @@ export const NearbyWorkWidget: React.FC = () => {
               Active & Planned Work Near You
             </h3>
             <p className="text-[11px] font-mono text-railway-textMuted uppercase">
-              {state.selectedSectionId} · VIJAYAWADA DIVISION JURISDICTION
+              {state.selectedSectionId} · SECTIONAL JURISDICTION
             </p>
           </div>
         </div>

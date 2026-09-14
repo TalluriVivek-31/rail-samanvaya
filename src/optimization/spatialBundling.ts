@@ -76,9 +76,10 @@ export function evaluateMultiDepartmentOverlaps(
       // If tasks can execute concurrently: Duration = max(durations)
       // If incompatible or sequential dependencies exist: Duration = sum(durations)
       const isConcurrent = trackCompatible;
+      const getDur = (r: BlockRequest) => r.total_required_duration || r.total_possession_required || r.duration;
       const combinedDuration = isConcurrent 
-        ? Math.max(...overlappingWithA.map(r => r.duration))
-        : overlappingWithA.reduce((sum, r) => sum + r.duration, 0);
+        ? Math.max(...overlappingWithA.map(getDur))
+        : overlappingWithA.reduce((sum, r) => sum + getDur(r), 0);
 
       // Standard Available Corridor Window = 135 minutes (04:15 - 06:30)
       const availableWindowMinutes = 135;

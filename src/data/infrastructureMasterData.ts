@@ -5,15 +5,16 @@
 import { 
   InfrastructureMaster, 
   SectionMaster, 
-  StationMaster,
-  RouteMaster,
-  AffectedSectionBreakdown,
-  BetweenStationsInfo,
+  StationMaster, 
+  RouteMaster, 
+  AffectedSectionBreakdown, 
+  BetweenStationsInfo, 
   InfrastructureAsset, 
   WorkTypeConfig, 
   LocationDetectionResult 
 } from '../types/infrastructure';
 import { parseRailwayKm, formatRailwayKm, calculateAffectedLength, validateKmRange } from '../utils/railwayLocation';
+import { NATIONAL_STATION_GEOS } from '../utils/railwayGeospatial';
 
 export const INFRASTRUCTURE_CORRIDOR = {
   name: 'Vijayawada – Guntur – Tenali High-Density Corridor',
@@ -720,10 +721,12 @@ export function searchRailwayLocation(query: string): Array<{
   if (!query || query.trim().length === 0) return [];
   const q = query.trim().toLowerCase();
   const results: Array<any> = [];
+  const matchedCodes = new Set<string>();
 
-  // 1. Match Stations (by code or name)
+  // 1. Match Local Corridor Stations (by code or name)
   CORRIDOR_STATIONS.forEach(stn => {
     if (stn.stationCode.toLowerCase().includes(q) || stn.stationName.toLowerCase().includes(q) || `stn${stn.stationCode}`.toLowerCase().includes(q)) {
+      matchedCodes.add(stn.stationCode);
       results.push({
         type: 'STATION',
         title: `${stn.stationName} (${stn.stationCode})`,
@@ -736,6 +739,28 @@ export function searchRailwayLocation(query: string): Array<{
         primaryStationCode: stn.stationCode,
         sectionCode: stn.sectionId,
         routeCode: stn.routeCode,
+      });
+    }
+  });
+
+  // 1b. Match Nationwide Stations across all 18 Indian Railway Zones
+  Object.values(NATIONAL_STATION_GEOS).forEach((stn: any) => {
+    if (matchedCodes.has(stn.code)) return;
+    if (stn.code.toLowerCase().includes(q) || stn.name.toLowerCase().includes(q)) {
+      matchedCodes.add(stn.code);
+      const baseKm = stn.km != null ? stn.km : 12.4;
+      results.push({
+        type: 'STATION',
+        title: `${stn.name} (${stn.code})`,
+        subtitle: `National Railway Station · ${stn.platforms || 4} Platforms · Coordinates: ${stn.lat.toFixed(2)}, ${stn.lng.toFixed(2)}`,
+        code: stn.code,
+        startKm: baseKm,
+        endKm: baseKm + 1.2,
+        suggestedStartKm: formatRailwayKm(baseKm).replace('KM ', ''),
+        suggestedEndKm: formatRailwayKm(baseKm + 1.2).replace('KM ', ''),
+        primaryStationCode: stn.code,
+        sectionCode: `${stn.code}-SEC`,
+        routeCode: 'IR-TRUNK',
       });
     }
   });
@@ -817,8 +842,8 @@ export function detectLocationInfrastructure(
   const validation = validateKmRange(
     startKmDecimal, 
     endKmDecimal, 
-    INFRASTRUCTURE_CORRIDOR.startKm, 
-    INFRASTRUCTURE_CORRIDOR.endKm
+    0.0, 
+    3000.0
   );
 
   const startKmDisplay = isNaN(startKmDecimal) ? 'Invalid' : formatRailwayKm(startKmDecimal);
@@ -859,9 +884,48 @@ export function detectLocationInfrastructure(
   }
 
   // 1. Detect intersecting sections & compute detailed breakdown per section
-  const detectedSections = SECTIONS_MASTER.filter(sec => {
+  let detectedSections = SECTIONS_MASTER.filter(sec => {
     return sec.startKm < endKmDecimal && sec.endKm > startKmDecimal;
   });
+
+  // If outside local corridor (e.g. nationwide chainage), provide dynamic section with dynamic tracks
+  if (detectedSections.length === 0) {
+    const natList = Object.values(NATIONAL_STATION_GEOS);
+    const closest: any = natList.find(s => s.km != null && Math.abs(s.km - startKmDecimal) <= 30) || natList[0];
+    detectedSections = [{
+      sectionId: `${closest.code}-SEC`,
+      sectionName: `${closest.name} Main Section`,
+      corridorCode: 'IR-TRUNK',
+      startKm: Math.floor(startKmDecimal),
+      endKm: Math.ceil(endKmDecimal),
+      startStation: closest.code,
+      endStation: closest.code,
+      totalKm: Math.max(1, endKmDecimal - startKmDecimal),
+      doubleTrack: true,
+      tracks: [
+        {
+          trackId: 'TRK-UP-MAIN',
+          trackName: 'UP Main',
+          lineId: 'LINE-UP',
+          lineName: `${closest.name} UP Main Line`,
+          startKm: startKmDecimal,
+          endKm: endKmDecimal,
+          electrified: true,
+          speedLimitKmph: 130
+        },
+        {
+          trackId: 'TRK-DN-MAIN',
+          trackName: 'DOWN Main',
+          lineId: 'LINE-DN',
+          lineName: `${closest.name} DOWN Main Line`,
+          startKm: startKmDecimal,
+          endKm: endKmDecimal,
+          electrified: true,
+          speedLimitKmph: 130
+        }
+      ]
+    }];
+  }
 
   const isCrossSection = detectedSections.length > 1;
 
@@ -940,6 +1004,34 @@ export function detectLocationInfrastructure(
       primaryStation = stn;
     }
   });
+
+  // If outside local corridor, resolve closest nationwide station
+  if (minDiff > 50) {
+    const natList = Object.values(NATIONAL_STATION_GEOS);
+    let closestNat: any = natList[0];
+    let minNatDiff = Infinity;
+    natList.forEach(stn => {
+      const diff = Math.abs((stn.km || 0) - midKm);
+      if (diff < minNatDiff) {
+        minNatDiff = diff;
+        closestNat = stn;
+      }
+    });
+    if (closestNat) {
+      primaryStation = {
+        stationId: `STN-${closestNat.code}`,
+        stationCode: closestNat.code,
+        stationName: closestNat.name,
+        sectionId: `${closestNat.code}-SEC`,
+        routeCode: 'IR-TRUNK',
+        km: closestNat.km || midKm,
+        kmDisplay: formatRailwayKm(closestNat.km || midKm),
+        yardLimitStartKm: closestNat.yardStartKm || midKm - 1.5,
+        yardLimitEndKm: closestNat.yardEndKm || midKm + 1.5,
+        tracks: closestNat.tracks || ['UP Main', 'DOWN Main']
+      };
+    }
+  }
 
   // If a station's yard limits are intersected, prioritize that station
   if (isStationLimitIntersection) {

@@ -71,11 +71,20 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
   const [locationSearchQuery, setLocationSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
 
-  // STEP 3: RESOURCES & EXECUTION CAPACITY
+  // STEP 3: RESOURCES & GRANULAR POSSESSION BREAKDOWN
+  const [mobMins, setMobMins] = useState(15);
+  const [setupMins, setSetupMins] = useState(15);
+  const [netWorkMins, setNetWorkMins] = useState(60);
+  const [clearanceMins, setClearanceMins] = useState(15);
+  const [restorationMins, setRestorationMins] = useState(15);
+  const totalRequiredDuration = mobMins + setupMins + netWorkMins + clearanceMins + restorationMins;
+
   const [durationMinutes, setDurationMinutes] = useState(120);
   const [priority, setPriority] = useState<BlockPriority>('HIGH');
   const [workforceCount, setWorkforceCount] = useState<number>(8);
-  const [machinesInput, setMachinesInput] = useState('09-3X Dynamic Tamping Machine, Track Motor Trolley');
+  const [staffInput, setStaffInput] = useState('1 SSE, 2 Track Maintainers, 6 Gangmen');
+  const [machinesInput, setMachinesInput] = useState('TM-04 (09-3X Dynamic Tamping Machine)');
+  const [equipmentInput, setEquipmentInput] = useState('Rail tensors, AFTC test box, Chamfering kit');
   const [materialsInput, setMaterialsInput] = useState('Ballast 40 cu.m, Elastic Rail Clips, Liner sets');
   const [dependenciesInput, setDependenciesInput] = useState('Requires TRD power isolation confirmation on UP Main before machine entry.');
   const [otherDepts, setOtherDepts] = useState<Department[]>(['TRD']);
@@ -84,7 +93,9 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
   const [trafficBlockRequired, setTrafficBlockRequired] = useState(true);
   const [powerBlockRequired, setPowerBlockRequired] = useState(false);
   const [sntDisconnectionRequired, setSntDisconnectionRequired] = useState(false);
+  const [integratedBlockRequired, setIntegratedBlockRequired] = useState(false);
   const [speedRestrictionRequired, setSpeedRestrictionRequired] = useState(true);
+  const [cautionSpeedKmph, setCautionSpeedKmph] = useState<number>(30);
   const [specialRestrictions, setSpecialRestrictions] = useState('Caution order 30 km/h for first 3 trains post work completion.');
   const [requestedDate, setRequestedDate] = useState('2026-09-12');
   const [preferredStartTime, setPreferredStartTime] = useState('04:30');
@@ -246,7 +257,26 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
       flexibleTiming,
       earliestAcceptableTime: earliestTime,
       latestAcceptableTime: latestTime,
-      duration: Number(durationMinutes),
+      duration: totalRequiredDuration,
+      requested_duration: totalRequiredDuration,
+      planned_duration: totalRequiredDuration,
+      total_required_duration: totalRequiredDuration,
+      requested_start: preferredStartTime,
+      possessionBreakdown: {
+        mobilisation_duration: mobMins,
+        setup_duration: setupMins,
+        work_duration: netWorkMins,
+        clearance_duration: clearanceMins,
+        restoration_duration: restorationMins,
+        total_required_duration: totalRequiredDuration
+      },
+      resources: {
+        staff_required: workforceCount,
+        machine_required: machinesInput.split(',').map(m => m.trim()).filter(Boolean),
+        equipment_required: equipmentInput.split(',').map(e => e.trim()).filter(Boolean),
+        materials_required: materialsInput.split(',').map(m => m.trim()).filter(Boolean),
+        resource_ids: ['TM-04']
+      },
       priority,
       risk: priority === 'CRITICAL' ? 'HIGH' : 'MEDIUM',
       reason: workDescription,
@@ -259,7 +289,6 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
       materials: materialsInput.split(',').map(m => m.trim()).filter(Boolean),
       dependencies: dependenciesInput.split(',').map(d => d.trim()).filter(Boolean),
       otherDepartmentsInvolved: otherDepts,
-      specialOperatingRestrictions: specialRestrictions,
       additionalNotes,
       safetyRequirements: [specialRestrictions, 'Red banner flags at 600m/1200m', '3 detonators'],
       resourcesRequired: [machinesInput, `${workforceCount} Personnel`],
@@ -278,7 +307,11 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
       trafficBlockRequired,
       powerBlockRequired,
       sntDisconnectionRequired,
+      integratedBlockRequired,
       speedRestrictionRequired,
+      specialOperatingRestrictions: speedRestrictionRequired 
+        ? `Caution Order: Max ${cautionSpeedKmph} km/h. Reason: ${specialRestrictions}` 
+        : specialRestrictions,
       isCrossSection: locationResult.isCrossSection,
       crossSections: sectionNames,
       affectedAssets: locationResult.affectedAssets.all.map(a => `${a.assetId} (${a.name})`),
@@ -318,11 +351,11 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                   Submit Maintenance Requisition
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-railway-forest/10 text-railway-forest uppercase">
-                  BZA-CORRIDOR
+                  CORRIDOR REQUISITION
                 </span>
               </div>
               <p className="text-[11px] font-mono text-railway-textMuted uppercase">
-                SOUTH CENTRAL RAILWAY · WORK REQUISITION PIPELINE
+                INDIAN RAILWAYS · WORK REQUISITION PIPELINE
               </p>
             </div>
           </div>
@@ -431,9 +464,6 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                     <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
                       Work Details & Defect Specification
                     </h4>
-                    <p className="text-xs text-railway-textSecondary mt-0.5">
-                      Specify the department, maintenance nature, affected asset, and defect justification for the required work.
-                    </p>
                   </div>
 
                   {/* Department Selector */}
@@ -609,9 +639,6 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                     <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
                       Identify Location, Station & Track Infrastructure
                     </h4>
-                    <p className="text-xs text-railway-textSecondary mt-0.5">
-                      Enter Start KM and End KM. System auto-resolves Station, Section, Line, and physical assets from the Infrastructure Master.
-                    </p>
                   </div>
 
                   {/* Railway Location / Section Code Search Combobox */}
@@ -817,31 +844,75 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                     <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
                       Resource Mobilization & Departmental Dependencies
                     </h4>
-                    <p className="text-xs text-railway-textSecondary mt-0.5">
-                      Declare duration, gang workforce count, heavy on-track machines, materials, and dependencies for CPM planning.
-                    </p>
                   </div>
 
-                  {/* Duration & Priority */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-                    <div className="space-y-1.5">
+                  {/* Granular Possession Duration Breakdown (Indian Railways G&SR Standards) */}
+                  <div className="space-y-2 p-4 rounded-2xl bg-railway-canvas border border-railway-border">
+                    <div className="flex items-center justify-between">
                       <label className="font-semibold text-railway-textSecondary font-mono uppercase text-[10px]">
-                        Estimated Work Duration
+                        Possession Duration Breakdown (Minutes)
                       </label>
-                      <select
-                        value={durationMinutes}
-                        onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                        className="w-full px-3.5 py-2.5 rounded-2xl bg-railway-canvas border border-railway-border font-medium text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
-                      >
-                        <option value={45}>45 Minutes (Minor Inspection)</option>
-                        <option value={60}>60 Minutes (1 Hour)</option>
-                        <option value={90}>90 Minutes (1.5 Hours)</option>
-                        <option value={120}>120 Minutes (2 Hours - Standard)</option>
-                        <option value={180}>180 Minutes (3 Hours - Heavy)</option>
-                        <option value={240}>240 Minutes (4 Hours - Major Corridor)</option>
-                      </select>
+                      <span className="text-xs font-mono font-bold text-railway-forest bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                        TOTAL REQUIRED: {totalRequiredDuration} MINS ({Math.floor(totalRequiredDuration / 60)}h {totalRequiredDuration % 60}m)
+                      </span>
                     </div>
 
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs font-mono">
+                      <div className="space-y-1">
+                        <label className="text-[10px] text-neutral-500 uppercase">1. Mobilisation</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={mobMins}
+                          onChange={(e) => setMobMins(Number(e.target.value) || 0)}
+                          className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-railway-border text-xs text-railway-textPrimary"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] text-neutral-500 uppercase">2. Setup / Prep</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={setupMins}
+                          onChange={(e) => setSetupMins(Number(e.target.value) || 0)}
+                          className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-railway-border text-xs text-railway-textPrimary"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] text-neutral-500 uppercase">3. Net Work</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={netWorkMins}
+                          onChange={(e) => setNetWorkMins(Number(e.target.value) || 1)}
+                          className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-railway-border text-xs text-railway-textPrimary font-bold"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] text-neutral-500 uppercase">4. Clearance</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={clearanceMins}
+                          onChange={(e) => setClearanceMins(Number(e.target.value) || 0)}
+                          className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-railway-border text-xs text-railway-textPrimary"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] text-neutral-500 uppercase">5. Restoration</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={restorationMins}
+                          onChange={(e) => setRestorationMins(Number(e.target.value) || 0)}
+                          className="w-full px-2.5 py-1.5 rounded-xl bg-white border border-railway-border text-xs text-railway-textPrimary"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Priority & Workforce */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                     <div className="space-y-1.5">
                       <label className="font-semibold text-railway-textSecondary font-mono uppercase text-[10px]">
                         Priority Level
@@ -860,31 +931,30 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
 
                     <div className="space-y-1.5">
                       <label className="font-semibold text-railway-textSecondary font-mono uppercase text-[10px]">
-                        Workforce Count (Gang Personnel)
+                        Staff / Gang Breakdown
                       </label>
                       <input
-                        type="number"
-                        min={1}
-                        max={100}
-                        value={workforceCount}
-                        onChange={(e) => setWorkforceCount(Number(e.target.value))}
+                        type="text"
+                        value={staffInput}
+                        onChange={(e) => setStaffInput(e.target.value)}
+                        placeholder="e.g. 1 SSE, 2 Track Maintainers, 6 Gangmen"
                         className="w-full px-3.5 py-2.5 rounded-2xl bg-railway-canvas border border-railway-border font-mono text-xs text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
                       />
                     </div>
                   </div>
 
-                  {/* Machines & Materials Inputs */}
+                  {/* Machines & Equipment Inputs */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                     <div className="space-y-1.5">
                       <label className="font-semibold text-railway-textSecondary font-mono uppercase text-[10px] flex items-center gap-1.5">
                         <Wrench className="w-3.5 h-3.5 text-railway-forest" />
-                        <span>Machines & Track Plant</span>
+                        <span>Track Machine / Plant (e.g. TM-04, BCM)</span>
                       </label>
                       <input
                         type="text"
                         value={machinesInput}
                         onChange={(e) => setMachinesInput(e.target.value)}
-                        placeholder="e.g. 09-3X Tamping Machine, BCM, Tower Wagon"
+                        placeholder="e.g. TM-04 (09-3X Dynamic Tamping Machine), BCM-02"
                         className="w-full px-3.5 py-2.5 rounded-2xl bg-railway-canvas border border-railway-border text-xs text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
                       />
                     </div>
@@ -892,16 +962,31 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                     <div className="space-y-1.5">
                       <label className="font-semibold text-railway-textSecondary font-mono uppercase text-[10px] flex items-center gap-1.5">
                         <Package className="w-3.5 h-3.5 text-railway-forest" />
-                        <span>Materials & Consumables</span>
+                        <span>Equipment & Specialized Tools</span>
                       </label>
                       <input
                         type="text"
-                        value={materialsInput}
-                        onChange={(e) => setMaterialsInput(e.target.value)}
-                        placeholder="e.g. Ballast 40 cu.m, Fasteners, Contact wire"
+                        value={equipmentInput}
+                        onChange={(e) => setEquipmentInput(e.target.value)}
+                        placeholder="e.g. Rail tensors, AFTC test box, Weld trimmer"
                         className="w-full px-3.5 py-2.5 rounded-2xl bg-railway-canvas border border-railway-border text-xs text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
                       />
                     </div>
+                  </div>
+
+                  {/* Materials Input */}
+                  <div className="space-y-1.5 text-xs">
+                    <label className="font-semibold text-railway-textSecondary font-mono uppercase text-[10px] flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5 text-railway-forest" />
+                      <span>Materials & Consumables Required</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={materialsInput}
+                      onChange={(e) => setMaterialsInput(e.target.value)}
+                      placeholder="e.g. Ballast 40 cu.m, Elastic Rail Clips, Liner sets, Contact wire 100m"
+                      className="w-full px-3.5 py-2.5 rounded-2xl bg-railway-canvas border border-railway-border text-xs text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
+                    />
                   </div>
 
                   {/* Mandatory Dependencies & Other Departments Involved */}
@@ -974,15 +1059,12 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                     <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
                       Operating Conditions & Planning Time Preferences
                     </h4>
-                    <p className="text-xs text-railway-textSecondary mt-0.5">
-                      Declare requested operating isolations. Enter your desired preferred window for planning consideration.
-                    </p>
                   </div>
 
-                  {/* 4 Block Requirements Checkboxes */}
+                  {/* 5 Block Facilities Checkboxes */}
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-railway-textSecondary font-mono uppercase">
-                      Requested Operational Possessions (Evaluated during Approval)
+                      Requested Operational Facilities (Evaluated during Corridor Approval)
                     </label>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                       <label className={`p-3 rounded-2xl border cursor-pointer transition flex items-center space-x-2.5 ${
@@ -1022,17 +1104,60 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                       </label>
 
                       <label className={`p-3 rounded-2xl border cursor-pointer transition flex items-center space-x-2.5 ${
-                        speedRestrictionRequired ? 'bg-amber-50/70 border-amber-600 text-amber-900' : 'bg-white border-railway-border text-neutral-500'
+                        integratedBlockRequired ? 'bg-purple-50/70 border-purple-600 text-purple-900' : 'bg-white border-railway-border text-neutral-500'
                       }`}>
                         <input
                           type="checkbox"
-                          checked={speedRestrictionRequired}
-                          onChange={(e) => setSpeedRestrictionRequired(e.target.checked)}
-                          className="rounded text-amber-600 focus:ring-0 w-4 h-4 accent-amber-600"
+                          checked={integratedBlockRequired}
+                          onChange={(e) => setIntegratedBlockRequired(e.target.checked)}
+                          className="rounded text-purple-600 focus:ring-0 w-4 h-4 accent-purple-600"
                         />
-                        <span className="font-semibold">Speed Restriction</span>
+                        <span className="font-semibold">Integrated Block</span>
                       </label>
                     </div>
+                  </div>
+
+                  {/* Caution Order / Speed Restriction */}
+                  <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200 space-y-3">
+                    <label className="flex items-center space-x-2.5 font-semibold text-xs text-amber-900 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={speedRestrictionRequired}
+                        onChange={(e) => setSpeedRestrictionRequired(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-0 w-4 h-4 accent-amber-600"
+                      />
+                      <span>Temporary Speed Restriction (Caution Order Required Post-Work)</span>
+                    </label>
+
+                    {speedRestrictionRequired && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
+                        <div>
+                          <label className="text-[10px] font-mono uppercase text-amber-800 block mb-1">
+                            Authorized Speed Restriction (km/h)
+                          </label>
+                          <input
+                            type="number"
+                            min={10}
+                            max={100}
+                            value={cautionSpeedKmph}
+                            onChange={(e) => setCautionSpeedKmph(Number(e.target.value) || 30)}
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-amber-300 text-xs font-mono font-bold text-neutral-800"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-mono uppercase text-amber-800 block mb-1">
+                            Operating Justification
+                          </label>
+                          <input
+                            type="text"
+                            value={specialRestrictions}
+                            onChange={(e) => setSpecialRestrictions(e.target.value)}
+                            placeholder="e.g. Caution order 30 km/h for consolidation of disturbed ballast bed"
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-amber-300 text-xs text-neutral-800"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Special Operating Restrictions */}

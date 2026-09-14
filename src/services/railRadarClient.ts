@@ -47,7 +47,28 @@ export interface RailRadarHealthStatus {
 export async function checkRailRadarHealth(): Promise<RailRadarHealthStatus> {
   try {
     const res = await fetch('/api/railradar/health');
+    const contentType = res.headers.get('content-type') || '';
+
+    // If server returned non-OK status, inspect if a JSON error was provided
     if (!res.ok) {
+      if (contentType.includes('application/json')) {
+        try {
+          const errJson = await res.json();
+          if (errJson && typeof errJson === 'object') {
+            return {
+              provider: 'RailRadar',
+              configured: Boolean(errJson.configured),
+              backend: 'available',
+              providerReachable: false,
+              providerStatus: 'unreachable',
+              status: errJson.status || 'backend_error',
+              failureState: errJson.failureState || 'BACKEND_UNAVAILABLE',
+              timestamp: errJson.timestamp || new Date().toISOString(),
+              message: errJson.message || `Express backend returned HTTP ${res.status}`
+            };
+          }
+        } catch {}
+      }
       return {
         provider: 'RailRadar',
         configured: false,
@@ -60,9 +81,43 @@ export async function checkRailRadarHealth(): Promise<RailRadarHealthStatus> {
         message: `Express backend health endpoint returned HTTP ${res.status}`
       };
     }
-    const json = await res.json();
-    return json;
+
+    // Defensive check against SPA HTML fallback (e.g. index.html returning 200 OK)
+    const text = await res.text();
+    const isHtml = text.trim().startsWith('<') || contentType.includes('text/html');
+    if (isHtml) {
+      return {
+        provider: 'RailRadar',
+        configured: false,
+        backend: 'unavailable',
+        providerReachable: false,
+        providerStatus: 'unreachable',
+        status: 'backend_unavailable',
+        failureState: 'BACKEND_UNAVAILABLE',
+        timestamp: new Date().toISOString(),
+        message: 'RailRadar backend route unavailable in production (received HTML instead of JSON). Check Vercel serverless function routing.'
+      };
+    }
+
+    try {
+      const json = JSON.parse(text);
+      return json;
+    } catch {
+      return {
+        provider: 'RailRadar',
+        configured: false,
+        backend: 'unavailable',
+        providerReachable: false,
+        providerStatus: 'unreachable',
+        status: 'backend_unavailable',
+        failureState: 'BACKEND_UNAVAILABLE',
+        timestamp: new Date().toISOString(),
+        message: 'RailRadar backend returned invalid non-JSON content.'
+      };
+    }
   } catch (err: any) {
+    const msg = err?.message || 'Connection refused';
+    const isJsonSyntax = msg.includes('Unexpected token') || msg.includes('is not valid JSON');
     return {
       provider: 'RailRadar',
       configured: false,
@@ -72,7 +127,9 @@ export async function checkRailRadarHealth(): Promise<RailRadarHealthStatus> {
       status: 'backend_unavailable',
       failureState: 'BACKEND_UNAVAILABLE',
       timestamp: new Date().toISOString(),
-      message: `Failed to reach Express backend: ${err?.message || 'Connection refused'}`
+      message: isJsonSyntax
+        ? 'RailRadar backend route unavailable in production (server returned HTML document instead of JSON).'
+        : `Failed to reach Express backend: ${msg}`
     };
   }
 }
@@ -289,12 +346,24 @@ export async function fetchLiveTrainStatus(
 
   try {
     const res = await fetch(`/api/railradar/train/${encodeURIComponent(trainNumber)}/live?${params.toString()}`);
+    const contentType = res.headers.get('content-type') || '';
     const text = await res.text();
+    const isHtml = text.trim().startsWith('<') || contentType.includes('text/html');
+
+    if (isHtml) {
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: new Date().toISOString(),
+        error: 'RailRadar backend route unavailable in production (received HTML instead of JSON).'
+      };
+    }
+
     let json: any = null;
     try {
       json = JSON.parse(text);
     } catch {
-      // Body is not JSON (e.g. proxy 502/504 HTML error or upstream plain text)
+      // Body is not valid JSON
       return {
         source: 'UNAVAILABLE',
         data: null,
@@ -376,7 +445,19 @@ export async function fetchLiveStationBoard(
 
   try {
     const res = await fetch(`/api/railradar/station/${encodeURIComponent(stationCode)}/live?${params.toString()}`);
+    const contentType = res.headers.get('content-type') || '';
     const text = await res.text();
+    const isHtml = text.trim().startsWith('<') || contentType.includes('text/html');
+
+    if (isHtml) {
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: new Date().toISOString(),
+        error: 'RailRadar backend route unavailable in production (received HTML instead of JSON).'
+      };
+    }
+
     let json: any = null;
     try {
       json = JSON.parse(text);

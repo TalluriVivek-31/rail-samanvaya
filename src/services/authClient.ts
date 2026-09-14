@@ -161,8 +161,9 @@ export async function authenticateEmployee(employeeId: string, password: string)
       body: JSON.stringify({ employeeId, password })
     });
 
+    const contentType = res.headers.get('content-type') || '';
     // If server returned valid JSON
-    if (res.ok) {
+    if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
       if (data.success && data.user) {
         if (data.token) setStoredSessionToken(data.token);
@@ -237,7 +238,8 @@ export async function verifyCurrentSession(): Promise<SessionResponse> {
       }
     });
 
-    if (res.ok) {
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
       if (data.success && data.authenticated && data.user) {
         setStoredSessionUser(data.user);

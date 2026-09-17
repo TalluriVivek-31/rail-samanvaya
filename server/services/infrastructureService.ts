@@ -388,6 +388,13 @@ export function parseKm(input: string | number): number {
     return isNaN(kmNum) || isNaN(mNum) ? NaN : kmNum + mNum / 1000;
   }
 
+  if (clean.includes('+')) {
+    const [km, m] = clean.split('+');
+    const kmNum = parseInt(km, 10);
+    const mNum = parseInt(m, 10);
+    return isNaN(kmNum) || isNaN(mNum) ? NaN : kmNum + mNum / 1000;
+  }
+
   const val = parseFloat(clean);
   return isNaN(val) ? NaN : Math.round(val * 1000) / 1000;
 }
@@ -399,16 +406,34 @@ export function formatKm(km: number): string {
   return `KM ${kmInt}/${String(meters).padStart(3, '0')}`;
 }
 
-export function detectLocation(startInput: string | number, endInput: string | number) {
-  const startKm = parseKm(startInput);
-  const endKm = parseKm(endInput);
+export function normalizeRailwayKm(input: string | number): { km: number; meters: number; formatted: string; isValid: boolean } {
+  const km = parseKm(input);
+  if (isNaN(km)) {
+    return { km: NaN, meters: NaN, formatted: 'KM --/---', isValid: false };
+  }
+  const whole = Math.floor(km);
+  const frac = Math.round((km - whole) * 1000);
+  return {
+    km,
+    meters: Math.round(km * 1000),
+    formatted: `KM ${whole}/${String(frac).padStart(3, '0')}`,
+    isValid: true
+  };
+}
 
-  if (isNaN(startKm) || isNaN(endKm)) {
+export function detectLocation(startInput: string | number, endInput: string | number) {
+  const startNorm = normalizeRailwayKm(startInput);
+  const endNorm = normalizeRailwayKm(endInput);
+
+  if (!startNorm.isValid || !endNorm.isValid) {
     return {
       isValid: false,
-      error: 'Invalid KM input. Use formats like 12/400 or 12.400'
+      error: 'Invalid KM input. Use formats like 12/400, 12+400, or 12.400'
     };
   }
+
+  const startKm = startNorm.km;
+  const endKm = endNorm.km;
 
   if (startKm < CORRIDOR.startKm || endKm > CORRIDOR.endKm) {
     return {
@@ -424,35 +449,95 @@ export function detectLocation(startInput: string | number, endInput: string | n
     };
   }
 
+  const startMetres = startNorm.meters;
+  const endMetres = endNorm.meters;
+  const affectedLengthMeters = endMetres - startMetres;
   const affectedLengthKm = Math.round((endKm - startKm) * 1000) / 1000;
-  const affectedLengthMeters = Math.round(affectedLengthKm * 1000);
 
-  // Sections
-  const detectedSections = SECTIONS.filter(sec => sec.startKm < endKm && sec.endKm > startKm);
+  // Sections - Interval intersection: max(startA, startB) < min(endA, endB)
+  const detectedSections = SECTIONS.filter(sec => Math.max(sec.startKm, startKm) < Math.min(sec.endKm, endKm));
   const isCrossSection = detectedSections.length > 1;
 
-  // Tracks
+  // Cross-section span breakdown
+  const crossSectionBreakdown = detectedSections.map(sec => {
+    const subStart = Math.max(sec.startKm, startKm);
+    const subEnd = Math.min(sec.endKm, endKm);
+    const subMeters = Math.round((subEnd - subStart) * 1000);
+    return {
+      sectionId: sec.sectionId,
+      sectionName: sec.sectionName,
+      startKm: subStart,
+      endKm: subEnd,
+      startKmDisplay: formatKm(subStart),
+      endKmDisplay: formatKm(subEnd),
+      lengthMeters: subMeters,
+      display: `${sec.sectionId}: ${formatKm(subStart)} – ${formatKm(subEnd)} (${subMeters} m)`
+    };
+  });
+
+  // Lines and Tracks present in interval
   const trackMap = new Map<string, TrackMaster>();
   const lineSet = new Set<string>();
 
   detectedSections.forEach(sec => {
     sec.tracks.forEach(trk => {
-      if (trk.startKm < endKm && trk.endKm > startKm && !trackMap.has(trk.trackName)) {
+      if (Math.max(trk.startKm, startKm) < Math.min(trk.endKm, endKm) && !trackMap.has(trk.trackName)) {
         trackMap.set(trk.trackName, trk);
         lineSet.add(trk.lineName);
       }
     });
   });
 
-  // Assets
-  const assetsInRange = ASSETS.filter(a => a.km >= startKm - 0.05 && a.km <= endKm + 0.05);
+  // Asset Discovery & Proximity Classification (Specification Section 16)
+  // Classifications: WITHIN_RANGE, INTERSECTS_RANGE, NEARBY (<= 100m)
+  const PROXIMITY_TOLERANCE_KM = 0.100; // 100 meters
+
+  const classifiedAssets = ASSETS.map(asset => {
+    const assetKm = asset.km;
+    if (assetKm >= startKm && assetKm <= endKm) {
+      return {
+        ...asset,
+        proximity: 'WITHIN_RANGE' as const,
+        distanceMeters: 0,
+        isAffected: true
+      };
+    } else if (Math.abs(assetKm - startKm) <= 0.005 || Math.abs(assetKm - endKm) <= 0.005) {
+      return {
+        ...asset,
+        proximity: 'INTERSECTS_RANGE' as const,
+        distanceMeters: Math.round(Math.min(Math.abs(assetKm - startKm), Math.abs(assetKm - endKm)) * 1000),
+        isAffected: true
+      };
+    } else if (assetKm < startKm && (startKm - assetKm) <= PROXIMITY_TOLERANCE_KM) {
+      const dist = Math.round((startKm - assetKm) * 1000);
+      return {
+        ...asset,
+        proximity: 'NEARBY' as const,
+        distanceMeters: dist,
+        isAffected: false
+      };
+    } else if (assetKm > endKm && (assetKm - endKm) <= PROXIMITY_TOLERANCE_KM) {
+      const dist = Math.round((assetKm - endKm) * 1000);
+      return {
+        ...asset,
+        proximity: 'NEARBY' as const,
+        distanceMeters: dist,
+        isAffected: false
+      };
+    }
+    return null;
+  }).filter((a): a is NonNullable<typeof a> => a !== null);
+
+  const affectedAssetsList = classifiedAssets.filter(a => a.isAffected);
+  const nearbyAssetsList = classifiedAssets.filter(a => !a.isAffected);
+
   const byDepartment = {
-    'P.Way': assetsInRange.filter(a => a.department === 'P.Way'),
-    'S&T': assetsInRange.filter(a => a.department === 'S&T'),
-    'TRD': assetsInRange.filter(a => a.department === 'TRD'),
+    'P.Way': affectedAssetsList.filter(a => a.department === 'P.Way'),
+    'S&T': affectedAssetsList.filter(a => a.department === 'S&T'),
+    'TRD': affectedAssetsList.filter(a => a.department === 'TRD'),
   };
 
-  // Station Identification
+  // Station limits & Context (Specification Section 17)
   const midKm = (startKm + endKm) / 2;
   let primaryStation = STATIONS[0];
   let minDiff = Infinity;
@@ -464,8 +549,7 @@ export function detectLocation(startInput: string | number, endInput: string | n
     }
   });
 
-  // Station limits intersection
-  const stationLimitsAffected = STATIONS.filter(s => s.yardLimitStartKm < endKm && s.yardLimitEndKm > startKm);
+  const stationLimitsAffected = STATIONS.filter(s => Math.max(s.yardLimitStartKm, startKm) < Math.min(s.yardLimitEndKm, endKm));
   const isStationLimitIntersection = stationLimitsAffected.length > 0;
   if (isStationLimitIntersection) {
     primaryStation = stationLimitsAffected[0];
@@ -483,15 +567,29 @@ export function detectLocation(startInput: string | number, endInput: string | n
 
   const betweenStations = `${prevStation.name} (${prevStation.code}) → ${nextStation.name} (${nextStation.code})`;
 
+  let stationContextType: 'WITHIN_STATION_LIMITS' | 'BETWEEN_STATIONS' | 'CROSSING_STATION_LIMITS' | 'NEAR_STATION' = 'BETWEEN_STATIONS';
+  if (stationLimitsAffected.length === 1 && startKm >= stationLimitsAffected[0].yardLimitStartKm && endKm <= stationLimitsAffected[0].yardLimitEndKm) {
+    stationContextType = 'WITHIN_STATION_LIMITS';
+  } else if (stationLimitsAffected.length > 1) {
+    stationContextType = 'CROSSING_STATION_LIMITS';
+  } else if (stationLimitsAffected.length === 1) {
+    stationContextType = 'CROSSING_STATION_LIMITS';
+  } else if (Math.min(...STATIONS.map(s => Math.min(Math.abs(s.km - startKm), Math.abs(s.km - endKm)))) < 1.0) {
+    stationContextType = 'NEAR_STATION';
+  }
+
   return {
     isValid: true,
     startKm,
     endKm,
+    startMetres,
+    endMetres,
     startKmDisplay: formatKm(startKm),
     endKmDisplay: formatKm(endKm),
     affectedLengthKm,
     affectedLengthMeters,
     isCrossSection,
+    crossSectionBreakdown,
     detectedSections,
     detectedLines: Array.from(lineSet),
     availableTracks: Array.from(trackMap.values()),
@@ -504,10 +602,89 @@ export function detectLocation(startInput: string | number, endInput: string | n
     betweenStations,
     isStationLimitIntersection,
     stationLimitsAffected: stationLimitsAffected.map(s => `${s.name} (${s.code})`),
+    stationContext: {
+      type: stationContextType,
+      display: isStationLimitIntersection 
+        ? `Station Limit Intersection: ${stationLimitsAffected.map(s => `${s.name} (${s.code})`).join(', ')}` 
+        : `Between ${betweenStations}`,
+      primaryStationCode: primaryStation.code,
+      primaryStationName: primaryStation.name,
+      betweenStations,
+      stationLimitsAffected: stationLimitsAffected.map(s => `${s.name} (${s.code})`)
+    },
     assets: {
-      total: assetsInRange.length,
-      list: assetsInRange,
+      total: affectedAssetsList.length,
+      list: affectedAssetsList,
+      nearby: nearbyAssetsList,
       byDepartment,
+    },
+    locationConfidence: 'HIGH' as const,
+    source: 'INFRASTRUCTURE_MASTER' as const,
+    provenance: {
+      source: 'INFRASTRUCTURE_MASTER',
+      authority: 'South Central Railway / Vijayawada Division (BZA)',
+      verifiedAt: new Date().toISOString()
     }
   };
+}
+
+// Additional Service Query Functions (Specification Section 38)
+
+export function getSections(corridorCode?: string): SectionMaster[] {
+  if (!corridorCode) return SECTIONS;
+  return SECTIONS.filter(s => s.corridorCode.toUpperCase() === corridorCode.toUpperCase());
+}
+
+export function resolveSections(startKm: number, endKm: number) {
+  return SECTIONS.filter(sec => Math.max(sec.startKm, startKm) < Math.min(sec.endKm, endKm));
+}
+
+export function getLines(startKm?: number, endKm?: number): string[] {
+  const lineSet = new Set<string>();
+  SECTIONS.forEach(sec => {
+    sec.tracks.forEach(trk => {
+      if (startKm !== undefined && endKm !== undefined) {
+        if (Math.max(trk.startKm, startKm) < Math.min(trk.endKm, endKm)) {
+          lineSet.add(trk.lineName);
+        }
+      } else {
+        lineSet.add(trk.lineName);
+      }
+    });
+  });
+  return Array.from(lineSet);
+}
+
+export function getTracks(startKm?: number, endKm?: number): TrackMaster[] {
+  const trackMap = new Map<string, TrackMaster>();
+  SECTIONS.forEach(sec => {
+    sec.tracks.forEach(trk => {
+      if (startKm !== undefined && endKm !== undefined) {
+        if (Math.max(trk.startKm, startKm) < Math.min(trk.endKm, endKm) && !trackMap.has(trk.trackId)) {
+          trackMap.set(trk.trackId, trk);
+        }
+      } else if (!trackMap.has(trk.trackId)) {
+        trackMap.set(trk.trackId, trk);
+      }
+    });
+  });
+  return Array.from(trackMap.values());
+}
+
+export function getAssets(department?: string): InfrastructureAsset[] {
+  if (!department) return ASSETS;
+  return ASSETS.filter(a => a.department.toLowerCase() === department.toLowerCase());
+}
+
+export function getAssetsByRange(startKm: number, endKm: number, trackName?: string, department?: string) {
+  return ASSETS.filter(a => {
+    const inKm = a.km >= startKm && a.km <= endKm;
+    const inTrack = !trackName || a.trackName.toLowerCase().includes(trackName.toLowerCase());
+    const inDept = !department || a.department.toLowerCase() === department.toLowerCase();
+    return inKm && inTrack && inDept;
+  });
+}
+
+export function getStationsList() {
+  return STATIONS;
 }

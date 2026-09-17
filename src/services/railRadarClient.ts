@@ -762,3 +762,109 @@ class PlanningConflictCycleManager {
 }
 
 export const planningConflictCycle = new PlanningConflictCycleManager();
+
+/**
+ * Fetch full train schedule / timetable from backend
+ */
+export async function fetchTrainSchedule(
+  trainNumber: string,
+  options: { haltsOnly?: boolean; refresh?: boolean } = {}
+): Promise<ApiResponse<any>> {
+  try {
+    const qs = new URLSearchParams();
+    if (options.haltsOnly) qs.set('haltsOnly', 'true');
+    if (options.refresh) qs.set('refresh', 'true');
+    const qStr = qs.toString() ? `?${qs.toString()}` : '';
+
+    const res = await fetch(`/api/railradar/train/${encodeURIComponent(trainNumber)}/schedule${qStr}`);
+    if (!res.ok) {
+      return { success: false, data: null, source: 'UNAVAILABLE', timestamp: new Date().toISOString(), error: `HTTP ${res.status}` };
+    }
+    const json = await res.json();
+    return { success: !!json.success, data: json.data, source: json.source || 'LIVE', timestamp: json.timestamp || new Date().toISOString() };
+  } catch (err: any) {
+    return { success: false, data: null, source: 'UNAVAILABLE', timestamp: new Date().toISOString(), error: err?.message };
+  }
+}
+
+/**
+ * Fetch train route geometry from backend
+ */
+export async function fetchTrainRouteGeometry(
+  trainNumber: string,
+  options: { refresh?: boolean; mode?: 'live' | 'demo' } = {}
+): Promise<ApiResponse<any>> {
+  try {
+    const qs = new URLSearchParams();
+    if (options.refresh) qs.set('refresh', 'true');
+    if (options.mode) qs.set('mode', options.mode);
+    const qStr = qs.toString() ? `?${qs.toString()}` : '';
+
+    const res = await fetch(`/api/railradar/train/${encodeURIComponent(trainNumber)}/route${qStr}`);
+    if (!res.ok) {
+      return { success: false, data: null, source: 'UNAVAILABLE', timestamp: new Date().toISOString(), error: `HTTP ${res.status}` };
+    }
+    const json = await res.json();
+    return { success: !!json.success, data: json.data, source: json.source || 'LIVE', timestamp: json.timestamp || new Date().toISOString() };
+  } catch (err: any) {
+    return { success: false, data: null, source: 'UNAVAILABLE', timestamp: new Date().toISOString(), error: err?.message };
+  }
+}
+
+/**
+ * Fetch trains between two stations
+ */
+export async function fetchTrainsBetweenStations(
+  fromStation: string,
+  toStation: string,
+  options: { date?: string; live?: boolean; refresh?: boolean } = {}
+): Promise<ApiResponse<any[]>> {
+  try {
+    const qs = new URLSearchParams();
+    if (options.date) qs.set('date', options.date);
+    if (options.live) qs.set('live', 'true');
+    if (options.refresh) qs.set('refresh', 'true');
+    const qStr = qs.toString() ? `?${qs.toString()}` : '';
+
+    const res = await fetch(`/api/railradar/trains/between/${encodeURIComponent(fromStation)}/${encodeURIComponent(toStation)}${qStr}`);
+    if (!res.ok) {
+      return { success: false, data: null, source: 'UNAVAILABLE', timestamp: new Date().toISOString(), error: `HTTP ${res.status}` };
+    }
+    const json = await res.json();
+    return { success: !!json.success, data: json.data, source: json.source || 'LIVE', timestamp: json.timestamp || new Date().toISOString() };
+  } catch (err: any) {
+    return { success: false, data: null, source: 'UNAVAILABLE', timestamp: new Date().toISOString(), error: err?.message };
+  }
+}
+
+/**
+ * Autocomplete station search
+ */
+export async function searchRailRadarStations(query: string): Promise<any[]> {
+  try {
+    const res = await fetch(`/api/railradar/search/stations?q=${encodeURIComponent(query)}`);
+    if (res.ok) {
+      const json = await res.json();
+      return Array.isArray(json.data) ? json.data : [];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Autocomplete train search
+ */
+export async function searchRailRadarTrains(query: string): Promise<any[]> {
+  try {
+    const res = await fetch(`/api/railradar/search/trains?q=${encodeURIComponent(query)}`);
+    if (res.ok) {
+      const json = await res.json();
+      return Array.isArray(json.data) ? json.data : [];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}

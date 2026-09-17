@@ -1,5 +1,17 @@
 import { Router, Request, Response } from 'express';
-import { getLiveTrainStatus, getLiveStationBoard, getLiveTrainRoute, clearRailRadarCache } from '../integrations/railRadarService.js';
+import { 
+  getLiveTrainStatus, 
+  getLiveStationBoard, 
+  getLiveTrainRoute, 
+  getTrainSchedule,
+  getTrainsBetweenStations,
+  getStationTimetable,
+  searchRailRadarStations,
+  searchRailRadarTrains,
+  getStationDirectory,
+  getTrainDirectory,
+  clearRailRadarCache 
+} from '../integrations/railRadarService.js';
 
 const router = Router();
 
@@ -290,6 +302,175 @@ router.get('/corridor/live', async (req: Request, res: Response): Promise<void> 
     res.status(500).json({
       success: false,
       error: 'Internal server error processing corridor live trains',
+      source: 'UNAVAILABLE',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// GET /api/railradar/train/:number/schedule
+router.get('/train/:number/schedule', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { number } = req.params;
+    const trainNumber = Array.isArray(number) ? number[0] : (number ?? '');
+    const haltsOnly = req.query.haltsOnly === 'true' || req.query.haltsOnly === '1';
+    const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
+
+    const result = await getTrainSchedule(trainNumber, { haltsOnly, forceRefresh });
+    res.json({
+      success: result.source !== 'UNAVAILABLE',
+      data: result.data,
+      source: result.source,
+      timestamp: result.timestamp,
+      upstreamUpdatedAt: result.upstreamUpdatedAt,
+      meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error processing train schedule',
+      source: 'UNAVAILABLE',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// GET /api/railradar/trains/between/:from/:to
+router.get('/trains/between/:from/:to', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const fromStation = String(req.params.from || '').toUpperCase();
+    const toStation = String(req.params.to || '').toUpperCase();
+    const date = typeof req.query.date === 'string' ? req.query.date : undefined;
+    const live = req.query.live === 'true' || req.query.live === '1';
+    const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
+
+    const result = await getTrainsBetweenStations(fromStation, toStation, date, { live, forceRefresh });
+    res.json({
+      success: result.source !== 'UNAVAILABLE',
+      data: result.data,
+      source: result.source,
+      timestamp: result.timestamp,
+      upstreamUpdatedAt: result.upstreamUpdatedAt,
+      meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error processing trains between stations',
+      source: 'UNAVAILABLE',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// GET /api/railradar/station/:code/timetable
+router.get('/station/:code/timetable', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const stationCode = String(req.params.code || '').toUpperCase();
+    const date = typeof req.query.date === 'string' ? req.query.date : undefined;
+    const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
+
+    const result = await getStationTimetable(stationCode, date, { forceRefresh });
+    res.json({
+      success: result.source !== 'UNAVAILABLE',
+      data: result.data,
+      source: result.source,
+      timestamp: result.timestamp,
+      upstreamUpdatedAt: result.upstreamUpdatedAt,
+      meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error processing station timetable',
+      source: 'UNAVAILABLE',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// GET /api/railradar/search/stations
+router.get('/search/stations', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
+
+    const result = await searchRailRadarStations(q, { forceRefresh });
+    res.json({
+      success: true,
+      data: result.data,
+      source: result.source,
+      timestamp: result.timestamp
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error searching stations',
+      source: 'UNAVAILABLE',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// GET /api/railradar/search/trains
+router.get('/search/trains', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
+
+    const result = await searchRailRadarTrains(q, { forceRefresh });
+    res.json({
+      success: true,
+      data: result.data,
+      source: result.source,
+      timestamp: result.timestamp
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error searching trains',
+      source: 'UNAVAILABLE',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// GET /api/railradar/directory/stations
+router.get('/directory/stations', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
+    const result = await getStationDirectory({ forceRefresh });
+    res.json({
+      success: true,
+      data: result.data,
+      source: result.source,
+      timestamp: result.timestamp
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error fetching station directory',
+      source: 'UNAVAILABLE',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// GET /api/railradar/directory/trains
+router.get('/directory/trains', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
+    const result = await getTrainDirectory({ forceRefresh });
+    res.json({
+      success: true,
+      data: result.data,
+      source: result.source,
+      timestamp: result.timestamp
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error fetching train directory',
       source: 'UNAVAILABLE',
       timestamp: new Date().toISOString()
     });

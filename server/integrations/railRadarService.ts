@@ -763,3 +763,533 @@ export async function getLiveTrainRoute(
     inFlightRequests.delete(cacheKey);
   }
 }
+
+/**
+ * Normalized Train Intelligence Interface (Specification Section 5)
+ */
+export interface NormalizedTrainIntelligence {
+  trainNumber: string;
+  trainName: string;
+  runDate?: string;
+  runIdentity?: string;
+  currentLatitude?: number;
+  currentLongitude?: number;
+  currentSpeed?: number;
+  delayMinutes: number;
+  lastTelemetryTime: string;
+  currentStation?: string;
+  previousStation?: string;
+  nextStation?: string;
+  routeStations?: any[];
+  routeGeometry?: any;
+  currentRouteSegment?: string;
+  movementDirection: 'UP' | 'DN' | 'UNKNOWN';
+  status: string;
+  telemetryState: 'LIVE' | 'STALE' | 'UNAVAILABLE' | 'DEMO';
+  locationConfidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+}
+
+/**
+ * Train Schedule & Timetable API
+ * Calls GET /v1/trains/{number}?haltsOnly=true
+ */
+export async function getTrainSchedule(
+  trainNumber: string,
+  options: { forceRefresh?: boolean; haltsOnly?: boolean } = {}
+): Promise<ServiceResponse> {
+  const { forceRefresh = false, haltsOnly = false } = options;
+  const cacheKey = `schedule:${trainNumber}:${haltsOnly ? 'halts' : 'all'}`;
+
+  if (!forceRefresh) {
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { ...cached.response, cached: true, cacheExpiresAt: new Date(cached.expiresAt).toISOString() };
+    }
+  }
+
+  const rawKey = process.env.RAILRADAR_API_KEY || '';
+  const apiKey = rawKey.trim().replace(/^Bearer\s+/i, '');
+
+  if (!apiKey) {
+    return {
+      source: 'DEMO',
+      data: {
+        trainNumber,
+        trainName: `Train ${trainNumber}`,
+        schedule: [
+          { stationCode: 'BZA', stationName: 'Vijayawada Jn', arrivalTime: '02:00', departureTime: '02:15', haltMinutes: 15, day: 1, distanceKm: 0 },
+          { stationCode: 'MAG', stationName: 'Mangalagiri', arrivalTime: '02:32', departureTime: '02:34', haltMinutes: 2, day: 1, distanceKm: 13 },
+          { stationCode: 'GNT', stationName: 'Guntur Jn', arrivalTime: '03:05', departureTime: '03:15', haltMinutes: 10, day: 1, distanceKm: 32 }
+        ]
+      },
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  try {
+    const url = `https://api.railradar.in/v1/trains/${encodeURIComponent(trainNumber)}${haltsOnly ? '?haltsOnly=true' : ''}`;
+    const response = await fetchWithTimeout(
+      url,
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'x-api-key': apiKey,
+          'Accept': 'application/json'
+        }
+      },
+      API_TIMEOUT
+    );
+
+    if (!response.ok) {
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: new Date().toISOString(),
+        error: `Upstream RailRadar schedule returned HTTP ${response.status} ${response.statusText}`
+      };
+    }
+
+    const json = await response.json();
+    const result: ServiceResponse = {
+      source: 'LIVE',
+      data: json.data || json,
+      timestamp: new Date().toISOString(),
+      upstreamUpdatedAt: json.updated_at || new Date().toISOString()
+    };
+
+    cache.set(cacheKey, { response: result, expiresAt: Date.now() + CACHE_TTL * 15 });
+    return result;
+  } catch (error: any) {
+    return {
+      source: 'UNAVAILABLE',
+      data: null,
+      timestamp: new Date().toISOString(),
+      error: error?.message || 'Network error fetching train schedule'
+    };
+  }
+}
+
+/**
+ * Train Route Geometry (GIS) API
+ * Wraps getLiveTrainRoute with geometry normalization
+ */
+export async function getTrainRouteGeometry(
+  trainNumber: string,
+  options: { forceRefresh?: boolean; mode?: 'live' | 'demo' } = {}
+): Promise<ServiceResponse> {
+  return getLiveTrainRoute(trainNumber, options);
+}
+
+/**
+ * Trains Between Stations API
+ * Calls GET /v1/trains/between/{from}/{to}
+ */
+export async function getTrainsBetweenStations(
+  fromStation: string,
+  toStation: string,
+  date?: string,
+  options: { live?: boolean; forceRefresh?: boolean } = {}
+): Promise<ServiceResponse> {
+  const { live = false, forceRefresh = false } = options;
+  const cacheKey = `between:${fromStation}:${toStation}:${date || 'today'}:${live ? 'live' : 'static'}`;
+
+  if (!forceRefresh) {
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { ...cached.response, cached: true, cacheExpiresAt: new Date(cached.expiresAt).toISOString() };
+    }
+  }
+
+  const rawKey = process.env.RAILRADAR_API_KEY || '';
+  const apiKey = rawKey.trim().replace(/^Bearer\s+/i, '');
+
+  if (!apiKey) {
+    return {
+      source: 'DEMO',
+      data: [
+        { trainNumber: '12627', trainName: 'Karnataka Express', from: fromStation, to: toStation, departure: '02:00', arrival: '03:15' },
+        { trainNumber: '12723', trainName: 'Telangana Express', from: fromStation, to: toStation, departure: '06:00', arrival: '07:10' }
+      ],
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  try {
+    const queryParams = new URLSearchParams();
+    if (date) queryParams.set('date', date);
+    if (live) queryParams.set('live', 'true');
+    const qs = queryParams.toString() ? `?${queryParams.toString()}` : '';
+
+    const url = `https://api.railradar.in/v1/trains/between/${encodeURIComponent(fromStation)}/${encodeURIComponent(toStation)}${qs}`;
+    const response = await fetchWithTimeout(
+      url,
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'x-api-key': apiKey,
+          'Accept': 'application/json'
+        }
+      },
+      API_TIMEOUT
+    );
+
+    if (!response.ok) {
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: new Date().toISOString(),
+        error: `Upstream RailRadar between-stations returned HTTP ${response.status} ${response.statusText}`
+      };
+    }
+
+    const json = await response.json();
+    const result: ServiceResponse = {
+      source: 'LIVE',
+      data: json.data || json,
+      timestamp: new Date().toISOString(),
+      upstreamUpdatedAt: json.updated_at || new Date().toISOString()
+    };
+
+    cache.set(cacheKey, { response: result, expiresAt: Date.now() + CACHE_TTL * 5 });
+    return result;
+  } catch (error: any) {
+    return {
+      source: 'UNAVAILABLE',
+      data: null,
+      timestamp: new Date().toISOString(),
+      error: error?.message || 'Network error fetching trains between stations'
+    };
+  }
+}
+
+/**
+ * Station Timetable Board API
+ * Calls GET /v1/stations/{code}/trains
+ */
+export async function getStationTimetable(
+  stationCode: string,
+  date?: string,
+  options: { forceRefresh?: boolean } = {}
+): Promise<ServiceResponse> {
+  const { forceRefresh = false } = options;
+  const cacheKey = `timetable:${stationCode}:${date || 'today'}`;
+
+  if (!forceRefresh) {
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { ...cached.response, cached: true, cacheExpiresAt: new Date(cached.expiresAt).toISOString() };
+    }
+  }
+
+  const rawKey = process.env.RAILRADAR_API_KEY || '';
+  const apiKey = rawKey.trim().replace(/^Bearer\s+/i, '');
+
+  if (!apiKey) {
+    return {
+      source: 'DEMO',
+      data: {
+        stationCode,
+        trains: [
+          { trainNumber: '12627', trainName: 'Karnataka Express', scheduledArrival: '02:00', scheduledDeparture: '02:15', platform: '1' },
+          { trainNumber: '12723', trainName: 'Telangana Express', scheduledArrival: '06:00', scheduledDeparture: '06:10', platform: '2' }
+        ]
+      },
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  try {
+    const qs = date ? `?date=${encodeURIComponent(date)}` : '';
+    const url = `https://api.railradar.in/v1/stations/${encodeURIComponent(stationCode)}/trains${qs}`;
+    const response = await fetchWithTimeout(
+      url,
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'x-api-key': apiKey,
+          'Accept': 'application/json'
+        }
+      },
+      API_TIMEOUT
+    );
+
+    if (!response.ok) {
+      return {
+        source: 'UNAVAILABLE',
+        data: null,
+        timestamp: new Date().toISOString(),
+        error: `Upstream RailRadar station timetable returned HTTP ${response.status} ${response.statusText}`
+      };
+    }
+
+    const json = await response.json();
+    const result: ServiceResponse = {
+      source: 'LIVE',
+      data: json.data || json,
+      timestamp: new Date().toISOString(),
+      upstreamUpdatedAt: json.updated_at || new Date().toISOString()
+    };
+
+    cache.set(cacheKey, { response: result, expiresAt: Date.now() + CACHE_TTL * 10 });
+    return result;
+  } catch (error: any) {
+    return {
+      source: 'UNAVAILABLE',
+      data: null,
+      timestamp: new Date().toISOString(),
+      error: error?.message || 'Network error fetching station timetable'
+    };
+  }
+}
+
+/**
+ * Station Autocomplete Search API
+ * Calls GET /v1/lookup/search/stations?q={query}
+ */
+export async function searchRailRadarStations(
+  query: string,
+  options: { forceRefresh?: boolean } = {}
+): Promise<ServiceResponse> {
+  const { forceRefresh = false } = options;
+  const q = query.trim().toLowerCase();
+  const cacheKey = `search:stations:${q}`;
+
+  if (!forceRefresh) {
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { ...cached.response, cached: true, cacheExpiresAt: new Date(cached.expiresAt).toISOString() };
+    }
+  }
+
+  const rawKey = process.env.RAILRADAR_API_KEY || '';
+  const apiKey = rawKey.trim().replace(/^Bearer\s+/i, '');
+
+  if (apiKey) {
+    try {
+      const url = `https://api.railradar.in/v1/lookup/search/stations?q=${encodeURIComponent(q)}`;
+      const response = await fetchWithTimeout(
+        url,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'x-api-key': apiKey,
+            'Accept': 'application/json'
+          }
+        },
+        API_TIMEOUT
+      );
+
+      if (response.ok) {
+        const json = await response.json();
+        const result: ServiceResponse = {
+          source: 'LIVE',
+          data: json.data || json,
+          timestamp: new Date().toISOString()
+        };
+        cache.set(cacheKey, { response: result, expiresAt: Date.now() + CACHE_TTL * 30 });
+        return result;
+      }
+    } catch {}
+  }
+
+  // Fallback to local station search
+  return {
+    source: 'DEMO',
+    data: [
+      { code: 'BZA', name: 'Vijayawada Junction', division: 'BZA', zone: 'SCR' },
+      { code: 'MAG', name: 'Mangalagiri', division: 'BZA', zone: 'SCR' },
+      { code: 'GNT', name: 'Guntur Junction', division: 'GNT', zone: 'SCR' },
+      { code: 'TEL', name: 'Tenali Junction', division: 'BZA', zone: 'SCR' },
+      { code: 'NDLS', name: 'New Delhi', division: 'DLI', zone: 'NR' },
+      { code: 'HWH', name: 'Howrah Junction', division: 'HWH', zone: 'ER' },
+      { code: 'MAS', name: 'Chennai Central', division: 'MAS', zone: 'SR' }
+    ].filter(s => s.code.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)),
+    timestamp: new Date().toISOString()
+  };
+}
+
+/**
+ * Train Autocomplete Search API
+ * Calls GET /v1/lookup/search/trains?q={query}
+ */
+export async function searchRailRadarTrains(
+  query: string,
+  options: { forceRefresh?: boolean } = {}
+): Promise<ServiceResponse> {
+  const { forceRefresh = false } = options;
+  const q = query.trim().toLowerCase();
+  const cacheKey = `search:trains:${q}`;
+
+  if (!forceRefresh) {
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { ...cached.response, cached: true, cacheExpiresAt: new Date(cached.expiresAt).toISOString() };
+    }
+  }
+
+  const rawKey = process.env.RAILRADAR_API_KEY || '';
+  const apiKey = rawKey.trim().replace(/^Bearer\s+/i, '');
+
+  if (apiKey) {
+    try {
+      const url = `https://api.railradar.in/v1/lookup/search/trains?q=${encodeURIComponent(q)}`;
+      const response = await fetchWithTimeout(
+        url,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'x-api-key': apiKey,
+            'Accept': 'application/json'
+          }
+        },
+        API_TIMEOUT
+      );
+
+      if (response.ok) {
+        const json = await response.json();
+        const result: ServiceResponse = {
+          source: 'LIVE',
+          data: json.data || json,
+          timestamp: new Date().toISOString()
+        };
+        cache.set(cacheKey, { response: result, expiresAt: Date.now() + CACHE_TTL * 30 });
+        return result;
+      }
+    } catch {}
+  }
+
+  return {
+    source: 'DEMO',
+    data: [
+      { number: '12627', name: 'Karnataka Express', from: 'SBC', to: 'NDLS' },
+      { number: '12723', name: 'Telangana Express', from: 'HYB', to: 'NDLS' },
+      { number: '17011', name: 'Intercity Express', from: 'HYB', to: 'SKZR' },
+      { number: '20834', name: 'Vande Bharat Express', from: 'SC', to: 'VSKP' },
+      { number: '12711', name: 'Pinakini Express', from: 'BZA', to: 'MAS' },
+      { number: '12615', name: 'Grand Trunk Express', from: 'MAS', to: 'NDLS' }
+    ].filter(t => t.number.includes(q) || t.name.toLowerCase().includes(q)),
+    timestamp: new Date().toISOString()
+  };
+}
+
+/**
+ * Station Directory Lookup API
+ * Calls GET /v1/lookup/stations
+ */
+export async function getStationDirectory(
+  options: { forceRefresh?: boolean } = {}
+): Promise<ServiceResponse> {
+  const { forceRefresh = false } = options;
+  const cacheKey = 'directory:stations';
+
+  if (!forceRefresh) {
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { ...cached.response, cached: true, cacheExpiresAt: new Date(cached.expiresAt).toISOString() };
+    }
+  }
+
+  const rawKey = process.env.RAILRADAR_API_KEY || '';
+  const apiKey = rawKey.trim().replace(/^Bearer\s+/i, '');
+
+  if (apiKey) {
+    try {
+      const url = `https://api.railradar.in/v1/lookup/stations`;
+      const response = await fetchWithTimeout(
+        url,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'x-api-key': apiKey,
+            'Accept': 'application/json'
+          }
+        },
+        API_TIMEOUT
+      );
+
+      if (response.ok) {
+        const json = await response.json();
+        const result: ServiceResponse = {
+          source: 'LIVE',
+          data: json.data || json,
+          timestamp: new Date().toISOString()
+        };
+        cache.set(cacheKey, { response: result, expiresAt: Date.now() + CACHE_TTL * 60 });
+        return result;
+      }
+    } catch {}
+  }
+
+  return {
+    source: 'DEMO',
+    data: {
+      BZA: { name: 'Vijayawada Junction', zone: 'SCR', division: 'BZA' },
+      MAG: { name: 'Mangalagiri', zone: 'SCR', division: 'BZA' },
+      GNT: { name: 'Guntur Junction', zone: 'SCR', division: 'GNT' },
+      TEL: { name: 'Tenali Junction', zone: 'SCR', division: 'BZA' }
+    },
+    timestamp: new Date().toISOString()
+  };
+}
+
+/**
+ * Train Directory Lookup API
+ * Calls GET /v1/lookup/trains
+ */
+export async function getTrainDirectory(
+  options: { forceRefresh?: boolean } = {}
+): Promise<ServiceResponse> {
+  const { forceRefresh = false } = options;
+  const cacheKey = 'directory:trains';
+
+  if (!forceRefresh) {
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { ...cached.response, cached: true, cacheExpiresAt: new Date(cached.expiresAt).toISOString() };
+    }
+  }
+
+  const rawKey = process.env.RAILRADAR_API_KEY || '';
+  const apiKey = rawKey.trim().replace(/^Bearer\s+/i, '');
+
+  if (apiKey) {
+    try {
+      const url = `https://api.railradar.in/v1/lookup/trains`;
+      const response = await fetchWithTimeout(
+        url,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'x-api-key': apiKey,
+            'Accept': 'application/json'
+          }
+        },
+        API_TIMEOUT
+      );
+
+      if (response.ok) {
+        const json = await response.json();
+        const result: ServiceResponse = {
+          source: 'LIVE',
+          data: json.data || json,
+          timestamp: new Date().toISOString()
+        };
+        cache.set(cacheKey, { response: result, expiresAt: Date.now() + CACHE_TTL * 60 });
+        return result;
+      }
+    } catch {}
+  }
+
+  return {
+    source: 'DEMO',
+    data: {
+      '12627': 'Karnataka Express',
+      '12723': 'Telangana Express',
+      '17011': 'Intercity Express',
+      '20834': 'Vande Bharat Express',
+      '12711': 'Pinakini Express',
+      '12615': 'Grand Trunk Express'
+    },
+    timestamp: new Date().toISOString()
+  };
+}

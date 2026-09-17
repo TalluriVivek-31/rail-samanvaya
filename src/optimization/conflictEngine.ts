@@ -61,6 +61,12 @@ export interface DetailedConflictAnalysisResult {
   };
   qualityRating: 'RECOMMENDED' | 'BEST_FEASIBLE_CANDIDATE_FOUND' | 'NO_FEASIBLE_SOLUTION' | 'OPTIMIZATION_FAILED';
   crossSectionAnalysis: CrossSectionAnalysis;
+  hasConflict?: boolean;
+  conflictDetails?: Array<{
+    severity: 'HARD_CONFLICT' | 'SOFT_CONFLICT' | 'ADVISORY';
+    train?: any;
+    reason?: string;
+  }>;
 }
 
 /**
@@ -138,16 +144,23 @@ export function analyzeLocationTrainConflicts(
   const activeMovements: PlannedCorridorMovement[] = [...SCHEDULED_CORRIDOR_MOVEMENTS];
 
   liveTrains.forEach(t => {
-    const parts = (t.expectedArrival || t.scheduledArrival || '00:00').split(':');
-    const mins = (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+    let mins = 0;
+    const timeStr = t.expectedArrival || t.scheduledArrival;
+    if (timeStr) {
+      const parts = timeStr.split(':');
+      mins = (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+    } else if (t.currentKm != null && t.currentKm >= startKm - 1.0 && t.currentKm <= endKm + 1.0) {
+      const reqParts = (requestedTime || '04:30').split(':');
+      mins = (parseInt(reqParts[0], 10) || 0) * 60 + (parseInt(reqParts[1], 10) || 0);
+    }
     activeMovements.push({
       trainNumber: t.trainNumber,
       trainName: t.trainName,
       type: 'EXPRESS',
-      track: t.direction === 'UP' ? 'UP Main' : 'DOWN Main',
+      track: (t.direction === 'DN' || (t.direction as string) === 'DOWN') ? 'DOWN Main' : 'UP Main',
       speedKmph: t.speedKmph || 100,
       currentKm: t.currentKm,
-      passageTimeAtZone: t.expectedArrival,
+      passageTimeAtZone: timeStr || `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`,
       timeMinutes: mins,
     });
   });
@@ -239,7 +252,9 @@ export function analyzeLocationTrainConflicts(
       const conflictingMovement = activeMovements.find(m => {
         const matchesTrack = selectedTracks.some(t => m.track.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(m.track.toLowerCase()));
         if (!matchesTrack) return false;
-        return m.timeMinutes > s.startMins - headwayBuffer && m.timeMinutes < s.endMins + headwayBuffer;
+        const timeOverlap = m.timeMinutes > s.startMins - headwayBuffer && m.timeMinutes < s.endMins + headwayBuffer;
+        const physicalOccupancy = m.currentKm != null && m.currentKm >= startKm - 0.5 && m.currentKm <= endKm + 0.5;
+        return timeOverlap || physicalOccupancy;
       });
 
       if (isSlotAffectedByTrack && conflictingMovement) {
@@ -288,16 +303,26 @@ export function analyzeLocationTrainConflicts(
       }
     }
 
-    // 4. Default Feasible Reason
+    // 4. Default Feasible Reason & Telemetry Failure Handling (Specification Section 35)
+    let candidateStatus: CandidatePlanningWindow['status'] = status;
     if (status === 'FEASIBLE') {
-      if (s.slotId === 'SLOT-02') {
+      if (!hasLiveTelemetry && dataSource === 'UNAVAILABLE') {
+        candidateStatus = 'UNKNOWN';
+        reason = `Train conflict status: UNKNOWN. Real-time RailRadar telemetry is currently unavailable. Operating feasibility cannot be verified without live headway data.`;
+      } else if (s.slotId === 'SLOT-02') {
         reason = hasLiveTelemetry
-          ? `Clear traffic window verified against live RailRadar movements, passenger timetable paths, and goods forecast movements. Preserves full ${headwayBuffer}-min configured planning safety margin.`
+          ? `Feasible duration with compatible departmental work and no detected train movement conflict under available telemetry. Preserves full ${headwayBuffer}-min safety margin.`
           : `Timetable-clear window verified against master passenger timetable and goods forecast paths. CAUTION: Live train telemetry is currently unavailable; real-time headway conflict cannot be guaranteed.`;
       } else {
         reason = `Secondary off-peak passenger window between scheduled express movements with ${headwayBuffer}-min headway buffers.`;
       }
     }
+
+    // Comparison attributes (Specification Section 33)
+    let trainConflictsCount = conflictingTrainInfo ? 1 : 0;
+    let coordinationCount = s.slotId === 'SLOT-02' ? 2 : (s.slotId === 'SLOT-04' ? 1 : 0);
+    let operationalImpact: 'Low' | 'Medium' | 'High' = s.slotId === 'SLOT-02' ? 'Low' : (s.slotId === 'SLOT-01' ? 'Medium' : 'High');
+    let priorityFit: 'High' | 'Medium' | 'Low' = s.slotId === 'SLOT-02' ? 'High' : (s.slotId === 'SLOT-01' ? 'Medium' : 'Low');
 
     candidates.push({
       slotId: s.slotId,
@@ -308,7 +333,12 @@ export function analyzeLocationTrainConflicts(
       durationMinutes: s.availableMinutes,
       required_duration: totalRequiredPossessionMinutes,
       available_duration: s.availableMinutes,
-      status,
+      status: candidateStatus,
+      train_conflicts: trainConflictsCount,
+      trainConflictsCount,
+      coordinationCount,
+      operationalImpact,
+      priorityFit,
       conflictingTrain: conflictingTrainInfo,
       resource_conflicts: resourceConflicts,
       isResourceConflict: Boolean(resourceConflicts && resourceConflicts.length > 0),
@@ -349,7 +379,9 @@ export function analyzeLocationTrainConflicts(
       const conflictingMovement = activeMovements.find(m => {
         const matchesTrack = selectedTracks.some(t => m.track.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(m.track.toLowerCase()));
         if (!matchesTrack) return false;
-        return m.timeMinutes > reqStartMins - headwayBuffer && m.timeMinutes < reqEndMins + headwayBuffer;
+        const timeOverlap = m.timeMinutes > reqStartMins - headwayBuffer && m.timeMinutes < reqEndMins + headwayBuffer;
+        const physicalOccupancy = m.currentKm != null && m.currentKm >= startKm - 0.5 && m.currentKm <= endKm + 0.5;
+        return timeOverlap || physicalOccupancy;
       });
 
       const hasConflict = Boolean(conflictingMovement);
@@ -379,11 +411,19 @@ export function analyzeLocationTrainConflicts(
     }
   }
 
+  const hasOverallConflict = Boolean(conflictingTrainSummary || candidates.some(c => c.status === 'CONFLICT') || requestedWindowAnalysis?.status === 'CONFLICT');
+  const conflictDetails = [
+    ...candidates.filter(c => c.status === 'CONFLICT').map(c => ({ severity: 'HARD_CONFLICT' as const, train: c.conflictingTrain, reason: c.reason })),
+    ...(requestedWindowAnalysis?.status === 'CONFLICT' && requestedWindowAnalysis.conflictingTrain ? [{ severity: 'HARD_CONFLICT' as const, train: requestedWindowAnalysis.conflictingTrain, reason: requestedWindowAnalysis.reason }] : [])
+  ];
+
   return {
     candidateWindows: candidates,
     recommendedWindow: recommended,
     requestedWindowAnalysis,
     conflictingTrainSummary,
+    hasConflict: hasOverallConflict,
+    conflictDetails,
     isDurationImpossible: false,
     longestFeasibleWindowMinutes: MAX_POSSIBLE_CORRIDOR_WINDOW,
     liveDataAvailable: hasLiveTelemetry,

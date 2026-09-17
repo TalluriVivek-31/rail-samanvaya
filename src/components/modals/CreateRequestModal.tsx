@@ -1,6 +1,6 @@
 // Dynamic Railway Location & Maintenance Requisition Modal
 // Indian Railways · South Central Railway (Vijayawada Division)
-// 4-Step Maintenance Requisition Flow (Step 5 Expunged)
+// 5-Step Progressive Maintenance Requisition Flow
 // Maintenance Requirement != Scheduled Block
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -40,6 +40,7 @@ import {
   formatRailwayKm, 
   calculateAffectedLength 
 } from '../../utils/railwayLocation';
+import { analyzeLocationTrainConflicts } from '../../optimization/conflictEngine';
 
 interface CreateRequestModalProps {
   isOpen: boolean;
@@ -49,8 +50,8 @@ interface CreateRequestModalProps {
 export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, onClose }) => {
   const { state, createRequest } = useSamnvayStore();
 
-  // Exactly 4 Steps: 1 (Work) -> 2 (Location) -> 3 (Resources) -> 4 (Operational & Schedule)
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  // Exactly 5 Steps: 1 (Work) -> 2 (Location) -> 3 (Infrastructure) -> 4 (Duration & Resources) -> 5 (Train Intelligence & Submit)
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
 
   // STEP 1: WORK DEFINITION
   const [department, setDepartment] = useState<Department>('P.Way');
@@ -186,6 +187,38 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
       }
     }
   }, [preferredStartTime, durationMinutes]);
+  // Candidate Planning Windows for Step 5
+  const step5Analysis = useMemo(() => {
+    if (!locationResult.isValid) return null;
+    return analyzeLocationTrainConflicts(
+      locationResult.startKmDecimal,
+      locationResult.endKmDecimal,
+      selectedTracks,
+      totalRequiredDuration,
+      preferredStartTime,
+      state.liveData.liveTrains
+    );
+  }, [locationResult, selectedTracks, totalRequiredDuration, preferredStartTime, state.liveData.liveTrains]);
+
+  // Contextual nearby trains on corridor
+  const nearbyTrains = useMemo(() => {
+    if (!locationResult.isValid) return [];
+    const reqKm = locationResult.startKmDecimal;
+    const isUp = selectedTracks.some(t => t.includes('UP'));
+    return state.liveData.liveTrains.map(t => {
+      const trainKm = t.currentKm ?? 10.0;
+      const dist = Number(Math.abs(trainKm - reqKm).toFixed(1));
+      const speed = t.speedKmph || 60;
+      const etaMins = Math.max(1, Math.round((dist / Math.max(speed, 20)) * 60));
+      const isApproaching = isUp ? trainKm < reqKm : trainKm > reqKm;
+      return {
+        ...t,
+        distanceKm: dist,
+        isApproaching,
+        etaMins
+      };
+    }).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 4);
+  }, [locationResult, selectedTracks, state.liveData.liveTrains]);
 
   if (!isOpen) return null;
 
@@ -361,14 +394,14 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
           </div>
 
           <div className="flex items-center space-x-3">
-            {/* 4 Step Indicators */}
+            {/* 5 Step Indicators */}
             {!submittedId && (
               <div className="hidden sm:flex items-center space-x-1.5 text-xs font-mono">
-                {[1, 2, 3, 4].map((stepNum) => (
+                {[1, 2, 3, 4, 5].map((stepNum) => (
                   <div
                     key={stepNum}
                     onClick={() => {
-                      if (stepNum < currentStep || (stepNum === 2 && locationResult.isValid)) {
+                      if (stepNum < currentStep || (stepNum <= 2 && locationResult.isValid)) {
                         setCurrentStep(stepNum as any);
                       }
                     }}
@@ -459,7 +492,7 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                 <div className="space-y-5 animate-in fade-in duration-150">
                   <div className="border-b border-railway-border pb-3">
                     <span className="text-[10px] font-mono font-bold uppercase text-railway-forest bg-railway-forest/10 px-2.5 py-0.5 rounded-full">
-                      STEP 1 OF 4 · WORK DEFINITION
+                      STEP 1 OF 5 · WORK DEFINITION
                     </span>
                     <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
                       Work Details & Defect Specification
@@ -634,7 +667,7 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                 <div className="space-y-5 animate-in fade-in duration-150">
                   <div className="border-b border-railway-border pb-3">
                     <span className="text-[10px] font-mono font-bold uppercase text-railway-forest bg-railway-forest/10 px-2.5 py-0.5 rounded-full">
-                      STEP 2 OF 4 · EXACT RAILWAY LOCATION
+                      STEP 2 OF 5 · EXACT RAILWAY LOCATION
                     </span>
                     <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
                       Identify Location, Station & Track Infrastructure
@@ -808,6 +841,62 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                     </div>
                   </div>
 
+                  {/* Compact Location Preview Widget */}
+                  {locationResult.isValid && (
+                    <div className="p-4 rounded-2xl bg-neutral-900 text-white font-mono text-xs shadow-md space-y-3">
+                      <div className="flex items-center justify-between text-[10px] text-neutral-400 font-bold uppercase tracking-wider border-b border-neutral-800 pb-2">
+                        <span className="flex items-center gap-1.5 text-emerald-400">
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>DYNAMIC LOCATION PREVIEW</span>
+                        </span>
+                        <span className="text-neutral-400">G&amp;SR PHYSICAL CHAINAGE</span>
+                      </div>
+
+                      {/* Visual Chainage Bar */}
+                      <div className="flex items-center justify-between px-2 pt-1">
+                        <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>{formatRailwayKm(locationResult.startKmDecimal)}</span>
+                        </div>
+                        <div className="flex-1 mx-3 flex items-center">
+                          <div className="h-0.5 bg-neutral-700 flex-1 relative flex items-center justify-center">
+                            <span className="px-2.5 py-0.5 rounded-full bg-neutral-800 text-[10px] text-emerald-300 font-bold border border-neutral-700">
+                              ───── {locationResult.affectedLengthMeters} m ─────
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>{formatRailwayKm(locationResult.endKmDecimal)}</span>
+                        </div>
+                      </div>
+
+                      {/* Section, Line, Track, Station Context, Assets, Nearby Trains */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-neutral-800 text-[11px]">
+                        <div>
+                          <span className="text-neutral-400 text-[9px] uppercase block">Section</span>
+                          <span className="font-bold text-white">{locationResult.sectionCode} ({locationResult.detectedSections[0]?.sectionName || 'BZA–MAG'})</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-400 text-[9px] uppercase block">Line / Track</span>
+                          <span className="font-bold text-white">{locationResult.detectedLines[0] || 'Main Line'} / {selectedTracks.join(', ')}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-400 text-[9px] uppercase block">Station Context</span>
+                          <span className="font-bold text-white truncate" title={locationResult.betweenStations?.display}>
+                            {locationResult.betweenStations?.display || `${locationResult.stationCode} Limits`}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-400 text-[9px] uppercase block">Assets / Traffic</span>
+                          <span className="font-bold text-emerald-300">
+                            {locationResult.affectedAssets.all.length} Assets · {nearbyTrains.length} Nearby Trains
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Navigation Actions */}
                   <div className="pt-4 border-t border-railway-border flex items-center justify-between">
                     <button
@@ -823,9 +912,9 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                       type="button"
                       disabled={!locationResult.isValid}
                       onClick={() => setCurrentStep(3)}
-                      className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-railway-forest hover:bg-railway-forestDark text-white text-xs font-semibold transition disabled:opacity-50"
+                      className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-railway-forest hover:bg-railway-forestDark text-white text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
                     >
-                      <span>Proceed to Resources</span>
+                      <span>Proceed to Affected Infrastructure</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -833,16 +922,170 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
               )}
 
               {/* ========================================================================= */}
-              {/* STEP 3: Resources & Execution Capacity (Workforce, Machines, Dependencies)  */}
+              {/* STEP 3: Affected Infrastructure & Proximity Discovery                      */}
               {/* ========================================================================= */}
               {currentStep === 3 && (
                 <div className="space-y-5 animate-in fade-in duration-150">
                   <div className="border-b border-railway-border pb-3">
                     <span className="text-[10px] font-mono font-bold uppercase text-railway-forest bg-railway-forest/10 px-2.5 py-0.5 rounded-full">
-                      STEP 3 OF 4 · RESOURCES & EXECUTION CAPACITY
+                      STEP 3 OF 5 · AFFECTED INFRASTRUCTURE
                     </span>
                     <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
-                      Resource Mobilization & Departmental Dependencies
+                      Discovered Fixed Assets & Corridor Proximity Classification
+                    </h4>
+                    <p className="text-xs text-railway-textSecondary mt-0.5">
+                      Fixed assets detected on {formatRailwayKm(locationResult.startKmDecimal)} – {formatRailwayKm(locationResult.endKmDecimal)} ({locationResult.affectedLengthMeters}m).
+                    </p>
+                  </div>
+
+                  {/* Department Summary Cards */}
+                  <div className="grid grid-cols-3 gap-3 text-xs font-mono">
+                    <div className="p-3 rounded-2xl bg-railway-canvas border border-railway-border flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                        <Hammer className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-railway-textMuted uppercase">P.Way Assets</div>
+                        <div className="font-bold text-railway-textPrimary text-sm">
+                          {locationResult.affectedAssets.all.filter(a => a.department === 'P.Way').length} in Scope
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-railway-canvas border border-railway-border flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
+                        <Radio className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-railway-textMuted uppercase">S&T Interlocking</div>
+                        <div className="font-bold text-railway-textPrimary text-sm">
+                          {locationResult.affectedAssets.all.filter(a => a.department === 'S&T').length} Assets
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-railway-canvas border border-railway-border flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                        <Zap className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-railway-textMuted uppercase">TRD Electrification</div>
+                        <div className="font-bold text-railway-textPrimary text-sm">
+                          {locationResult.affectedAssets.all.filter(a => a.department === 'TRD').length} Masts/Feeds
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Discovered Assets List */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-railway-textSecondary font-mono uppercase">
+                        Discovered Infrastructure Assets ({locationResult.affectedAssets.all.length} Total)
+                      </label>
+                      <span className="text-[10px] font-mono text-railway-textMuted">
+                        Auto-classified: WITHIN_RANGE · INTERSECTS_RANGE · NEARBY
+                      </span>
+                    </div>
+
+                    <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                      {locationResult.affectedAssets.all.length === 0 ? (
+                        <div className="p-4 rounded-2xl bg-neutral-50 border border-railway-border text-center text-xs text-neutral-500 font-mono">
+                          No specialized fixed infrastructure registered in this specific chainage span. Plain track section.
+                        </div>
+                      ) : (
+                        locationResult.affectedAssets.all.map((asset) => {
+                          const isWithin = asset.proximity === 'WITHIN_RANGE' || !asset.proximity;
+                          const isIntersects = asset.proximity === 'INTERSECTS_RANGE';
+
+                          return (
+                            <div
+                              key={asset.assetId}
+                              className={`p-3 rounded-2xl border flex items-center justify-between text-xs font-mono transition ${
+                                isWithin
+                                  ? 'bg-emerald-50/50 border-emerald-300'
+                                  : isIntersects
+                                  ? 'bg-sky-50/50 border-sky-300'
+                                  : 'bg-amber-50/40 border-amber-300'
+                              }`}
+                            >
+                              <div className="flex items-center space-x-3">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  asset.department === 'P.Way' ? 'bg-emerald-100 text-emerald-800' :
+                                  asset.department === 'S&T' ? 'bg-blue-100 text-blue-800' :
+                                  'bg-amber-100 text-amber-800'
+                                }`}>
+                                  {asset.department}
+                                </span>
+                                <div>
+                                  <div className="font-bold text-railway-textPrimary flex items-center gap-1.5">
+                                    <span>{asset.assetId} · {asset.name}</span>
+                                  </div>
+                                  <div className="text-[10px] text-neutral-500">
+                                    {asset.assetType} · Track: {asset.trackName} · Chainage: {asset.kmDisplay}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="text-right">
+                                {isWithin ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white shadow-2xs">
+                                    WITHIN_RANGE (0m)
+                                  </span>
+                                ) : isIntersects ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-300">
+                                    INTERSECTS_RANGE
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                    NEARBY (+{asset.distanceMeters ?? Math.round(Math.abs(asset.km - locationResult.startKmDecimal) * 1000)}m)
+                                  </span>
+                                )}
+                                <div className="text-[10px] text-neutral-400 mt-0.5">
+                                  {asset.status}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Navigation Actions */}
+                  <div className="pt-4 border-t border-railway-border flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep(2)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-railway-border text-xs text-railway-textSecondary hover:text-railway-textPrimary transition cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Back to Location</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep(4)}
+                      className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-railway-forest hover:bg-railway-forestDark text-white text-xs font-semibold transition cursor-pointer"
+                    >
+                      <span>Proceed to Duration & Resources</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* STEP 4: Duration, Resources & Operational Requirements                    */}
+              {/* ========================================================================= */}
+              {currentStep === 4 && (
+                <div className="space-y-5 animate-in fade-in duration-150">
+                  <div className="border-b border-railway-border pb-3">
+                    <span className="text-[10px] font-mono font-bold uppercase text-railway-forest bg-railway-forest/10 px-2.5 py-0.5 rounded-full">
+                      STEP 4 OF 5 · DURATION & OPERATIONAL REQUIREMENTS
+                    </span>
+                    <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
+                      Possession Duration Breakdown, Block Facilities & Gang Mobilization
                     </h4>
                   </div>
 
@@ -989,7 +1232,7 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                     />
                   </div>
 
-                  {/* Mandatory Dependencies & Other Departments Involved */}
+                  {/* Dependencies & Other Departments */}
                   <div className="space-y-3 text-xs">
                     <div className="space-y-1.5">
                       <label className="font-semibold text-railway-textSecondary font-mono uppercase text-[10px]">
@@ -1024,44 +1267,7 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                     </div>
                   </div>
 
-                  {/* Navigation Actions */}
-                  <div className="pt-4 border-t border-railway-border flex items-center justify-between">
-                    <button
-                      type="button"
-                      onClick={() => setCurrentStep(2)}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-railway-border text-xs text-railway-textSecondary hover:text-railway-textPrimary transition"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Back to Location</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setCurrentStep(4)}
-                      className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-railway-forest hover:bg-railway-forestDark text-white text-xs font-semibold transition"
-                    >
-                      <span>Proceed to Schedule & Submit</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* ========================================================================= */}
-              {/* STEP 4: Operational Requirements & Preferred Schedule                      */}
-              {/* ========================================================================= */}
-              {currentStep === 4 && (
-                <div className="space-y-5 animate-in fade-in duration-150">
-                  <div className="border-b border-railway-border pb-3">
-                    <span className="text-[10px] font-mono font-bold uppercase text-railway-forest bg-railway-forest/10 px-2.5 py-0.5 rounded-full">
-                      STEP 4 OF 4 · OPERATIONAL REQUIREMENTS & PREFERRED SCHEDULE
-                    </span>
-                    <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
-                      Operating Conditions & Planning Time Preferences
-                    </h4>
-                  </div>
-
-                  {/* 5 Block Facilities Checkboxes */}
+                  {/* Block Facilities Checkboxes */}
                   <div className="space-y-2">
                     <label className="text-xs font-semibold text-railway-textSecondary font-mono uppercase">
                       Requested Operational Facilities (Evaluated during Corridor Approval)
@@ -1152,26 +1358,12 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                             type="text"
                             value={specialRestrictions}
                             onChange={(e) => setSpecialRestrictions(e.target.value)}
-                            placeholder="e.g. Caution order 30 km/h for consolidation of disturbed ballast bed"
+                            placeholder="e.g. Caution order 30 km/h for consolidation of ballast bed"
                             className="w-full px-3 py-2 rounded-xl bg-white border border-amber-300 text-xs text-neutral-800"
                           />
                         </div>
                       </div>
                     )}
-                  </div>
-
-                  {/* Special Operating Restrictions */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-railway-textSecondary font-mono uppercase text-[10px]">
-                      Special Operating Restrictions & Caution Order
-                    </label>
-                    <input
-                      type="text"
-                      value={specialRestrictions}
-                      onChange={(e) => setSpecialRestrictions(e.target.value)}
-                      placeholder="e.g. Caution order 30 km/h for first 3 trains post work completion"
-                      className="w-full px-3.5 py-2.5 rounded-2xl bg-railway-canvas border border-railway-border text-xs text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
-                    />
                   </div>
 
                   {/* Preferred Schedule Section */}
@@ -1260,28 +1452,175 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                     </div>
                   </div>
 
-                  {/* Statutory Operating Disclaimer Banner */}
-                  <div className="rounded-2xl bg-amber-50/70 border border-amber-200 p-3.5 flex items-start space-x-2.5 text-xs text-amber-950 font-sans">
-                    <ShieldAlert className="w-4 h-4 text-railway-safetyAmber flex-shrink-0 mt-0.5" />
-                    <p className="leading-relaxed">
-                      <strong>Operating Rule Notice:</strong> Submitting this maintenance requisition does <strong>NOT</strong> grant or schedule an actual railway block. Operating authorities and the corridor constraint optimizer will evaluate train timetables, live RailRadar movements, and multi-department dependencies before issuing a block recommendation.
-                    </p>
-                  </div>
-
-                  {/* Navigation & Submit Actions */}
+                  {/* Navigation Actions */}
                   <div className="pt-4 border-t border-railway-border flex items-center justify-between">
                     <button
                       type="button"
                       onClick={() => setCurrentStep(3)}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-railway-border text-xs text-railway-textSecondary hover:text-railway-textPrimary transition"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-railway-border text-xs text-railway-textSecondary hover:text-railway-textPrimary transition cursor-pointer"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Back to Resources</span>
+                      <span>Back to Affected Infrastructure</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep(5)}
+                      className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-railway-forest hover:bg-railway-forestDark text-white text-xs font-semibold transition cursor-pointer"
+                    >
+                      <span>Proceed to Train Intelligence & Windows</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ========================================================================= */}
+              {/* STEP 5: Train Intelligence & Candidate Windows Preview                     */}
+              {/* ========================================================================= */}
+              {currentStep === 5 && (
+                <div className="space-y-5 animate-in fade-in duration-150">
+                  <div className="border-b border-railway-border pb-3">
+                    <span className="text-[10px] font-mono font-bold uppercase text-railway-forest bg-railway-forest/10 px-2.5 py-0.5 rounded-full">
+                      STEP 5 OF 5 · TRAIN INTELLIGENCE & WINDOWS PREVIEW
+                    </span>
+                    <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
+                      Corridor Train Proximity & Feasibility Preview
+                    </h4>
+                    <p className="text-xs text-railway-textSecondary mt-0.5">
+                      RailRadar live train movements and optimizer candidate possession windows for {formatRailwayKm(locationResult.startKmDecimal)} – {formatRailwayKm(locationResult.endKmDecimal)}.
+                    </p>
+                  </div>
+
+                  {/* Nearby Trains Table */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-railway-textSecondary font-mono uppercase flex items-center gap-1.5">
+                        <Train className="w-3.5 h-3.5 text-railway-forest" />
+                        <span>Section Train Movements (RailRadar Telemetry)</span>
+                      </label>
+                      <span className="text-[10px] font-mono text-neutral-400">
+                        {nearbyTrains.length} movements within corridor radius
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
+                      {nearbyTrains.length === 0 ? (
+                        <div className="col-span-2 p-3 rounded-2xl bg-neutral-50 text-center text-neutral-400 text-xs">
+                          No active train movements detected within section limits.
+                        </div>
+                      ) : (
+                        nearbyTrains.map((trn) => (
+                          <div
+                            key={trn.trainNumber}
+                            className="p-3 rounded-2xl bg-railway-canvas border border-railway-border flex items-center justify-between"
+                          >
+                            <div>
+                              <div className="font-bold text-railway-textPrimary">
+                                {trn.trainNumber} · {trn.trainName}
+                              </div>
+                              <div className="text-[10px] text-neutral-500">
+                                Current KM: {trn.currentKm ?? '10.0'} · {trn.speedKmph} km/h
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                trn.isApproaching ? 'bg-amber-100 text-amber-900' : 'bg-neutral-100 text-neutral-700'
+                              }`}>
+                                {trn.isApproaching ? 'Approaching' : 'Moving Away'}
+                              </span>
+                              <div className="text-[10px] text-neutral-500 font-bold mt-0.5">
+                                {trn.distanceKm} km ({trn.etaMins}m ETA)
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Candidate Planning Windows Preview */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-railway-textSecondary font-mono uppercase flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-railway-forest" />
+                        <span>Optimizer Candidate Possession Windows Preview</span>
+                      </label>
+                      <span className="text-[10px] font-mono text-emerald-700 font-bold">
+                        Required: {totalRequiredDuration} mins
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
+                      {(step5Analysis?.candidateWindows || []).map((cand, idx) => {
+                        const slotLabel = idx === 0 ? 'Early Morning' : idx === 1 ? 'Optimal Corridor' : 'Afternoon';
+                        const isRecommended = Boolean(cand.isRecommended);
+                        const isFeasible = cand.status === 'FEASIBLE';
+                        const isConflict = cand.status === 'CONFLICT';
+
+                        return (
+                          <div
+                            key={cand.slotId}
+                            className={`p-3.5 rounded-2xl border flex flex-col justify-between space-y-2 ${
+                              isRecommended
+                                ? 'bg-emerald-50/60 border-emerald-500 ring-1 ring-emerald-500'
+                                : isConflict
+                                ? 'bg-rose-50/40 border-rose-300'
+                                : 'bg-white border-railway-border'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-neutral-500">{slotLabel}</span>
+                              {isRecommended ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-600 text-white">
+                                  RECOMMENDED
+                                </span>
+                              ) : isFeasible ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-sky-100 text-sky-900 border border-sky-300">
+                                  FEASIBLE
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
+                                  CONFLICT
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="text-base font-bold text-railway-textPrimary">
+                              {cand.startTime} – {cand.endTime} IST
+                            </div>
+
+                            <div className="text-[10px] text-neutral-500 font-sans leading-snug">
+                              {cand.reason}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Statutory Operating Rule Disclaimer Banner */}
+                  <div className="rounded-2xl bg-amber-50/70 border border-amber-200 p-3.5 flex items-start space-x-2.5 text-xs text-amber-950 font-sans">
+                    <ShieldAlert className="w-4 h-4 text-railway-safetyAmber flex-shrink-0 mt-0.5" />
+                    <p className="leading-relaxed">
+                      <strong>Operating Rule Notice:</strong> Submitting this requisition registers a verified maintenance requirement into the decision-support engine. It does <strong>NOT</strong> grant or execute an automatic railway block. Human Officer / Controller authorization remains mandatory.
+                    </p>
+                  </div>
+
+                  {/* Navigation & Final Submit Actions */}
+                  <div className="pt-4 border-t border-railway-border flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep(4)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-railway-border text-xs text-railway-textSecondary hover:text-railway-textPrimary transition cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Back to Duration & Resources</span>
                     </button>
 
                     <button
                       type="submit"
-                      className="inline-flex items-center gap-2 px-8 py-3 rounded-full bg-railway-forest hover:bg-railway-forestDark text-white text-xs font-bold shadow-md transition active:scale-98"
+                      className="inline-flex items-center gap-2 px-8 py-3 rounded-full bg-railway-forest hover:bg-railway-forestDark text-white text-xs font-bold shadow-md transition active:scale-98 cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4 text-railway-signalGreenLight" />
                       <span>Submit Maintenance Requisition</span>

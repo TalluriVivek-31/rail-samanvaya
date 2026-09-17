@@ -867,8 +867,11 @@ export function detectLocationInfrastructure(
       availableTracks: [],
       affectedAssets: {
         all: [],
+        withinRange: [],
+        nearby: [],
         byDepartment: { 'P.Way': [], 'S&T': [], 'TRD': [] },
       },
+      stationContextType: 'BETWEEN_STATIONS',
       primaryStation: null,
       stationCode: 'UNKNOWN',
       stationName: 'Unknown Station',
@@ -960,15 +963,50 @@ export function detectLocationInfrastructure(
     });
   });
 
-  // 3. Find affected infrastructure assets in or intersecting the range
-  const allAssets = INFRASTRUCTURE_ASSETS.filter(a => {
-    return a.km >= startKmDecimal - 0.05 && a.km <= endKmDecimal + 0.05;
+  // 3. Find affected and nearby infrastructure assets with proximity classification
+  const PROXIMITY_TOLERANCE_KM = 2.0; // 2000m tolerance for nearby assets
+  const classifiedAssets: (InfrastructureAsset & { proximity: 'WITHIN_RANGE' | 'INTERSECTS_RANGE' | 'NEARBY'; distanceMeters: number; isAffected: boolean })[] = [];
+
+  INFRASTRUCTURE_ASSETS.forEach(a => {
+    const assetKm = a.km;
+    if (assetKm >= startKmDecimal && assetKm <= endKmDecimal) {
+      classifiedAssets.push({
+        ...a,
+        proximity: 'WITHIN_RANGE',
+        distanceMeters: 0,
+        isAffected: true,
+      });
+    } else if (Math.abs(assetKm - startKmDecimal) <= 0.005 || Math.abs(assetKm - endKmDecimal) <= 0.005) {
+      classifiedAssets.push({
+        ...a,
+        proximity: 'INTERSECTS_RANGE',
+        distanceMeters: Math.round(Math.min(Math.abs(assetKm - startKmDecimal), Math.abs(assetKm - endKmDecimal)) * 1000),
+        isAffected: true,
+      });
+    } else if (assetKm < startKmDecimal && (startKmDecimal - assetKm) <= PROXIMITY_TOLERANCE_KM) {
+      classifiedAssets.push({
+        ...a,
+        proximity: 'NEARBY',
+        distanceMeters: Math.round((startKmDecimal - assetKm) * 1000),
+        isAffected: false,
+      });
+    } else if (assetKm > endKmDecimal && (assetKm - endKmDecimal) <= PROXIMITY_TOLERANCE_KM) {
+      classifiedAssets.push({
+        ...a,
+        proximity: 'NEARBY',
+        distanceMeters: Math.round((assetKm - endKmDecimal) * 1000),
+        isAffected: false,
+      });
+    }
   });
 
+  const withinRangeAssets = classifiedAssets.filter(a => a.isAffected);
+  const nearbyAssets = classifiedAssets.filter(a => !a.isAffected);
+
   const byDepartment: Record<any, InfrastructureAsset[]> = {
-    'P.Way': allAssets.filter(a => a.department === 'P.Way'),
-    'S&T': allAssets.filter(a => a.department === 'S&T'),
-    'TRD': allAssets.filter(a => a.department === 'TRD'),
+    'P.Way': withinRangeAssets.filter(a => a.department === 'P.Way'),
+    'S&T': withinRangeAssets.filter(a => a.department === 'S&T'),
+    'TRD': withinRangeAssets.filter(a => a.department === 'TRD'),
   };
 
   // 4. Station Identification Logic
@@ -1092,7 +1130,9 @@ export function detectLocationInfrastructure(
     detectedLines: Array.from(lineSet),
     availableTracks,
     affectedAssets: {
-      all: allAssets,
+      all: classifiedAssets,
+      withinRange: withinRangeAssets,
+      nearby: nearbyAssets,
       byDepartment,
     },
     primaryStation,
@@ -1106,5 +1146,12 @@ export function detectLocationInfrastructure(
     stationLimitsAffected,
     betweenStations,
     stationsInRange,
+    stationContextType: stationLimitsAffected.length === 1 && startKmDecimal >= (primaryStation?.yardLimitStartKm ?? 0) && endKmDecimal <= (primaryStation?.yardLimitEndKm ?? 0)
+      ? 'WITHIN_STATION_LIMITS'
+      : stationLimitsAffected.length > 0
+      ? 'CROSSING_STATION_LIMITS'
+      : stationsInRange.some(s => Math.min(Math.abs(s.km - startKmDecimal), Math.abs(s.km - endKmDecimal)) < 1.0)
+      ? 'NEAR_STATION'
+      : 'BETWEEN_STATIONS',
   };
 }

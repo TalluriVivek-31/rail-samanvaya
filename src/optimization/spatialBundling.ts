@@ -89,10 +89,13 @@ export function evaluateMultiDepartmentOverlaps(
       const blockUtilizationPercent = Number(((Math.min(combinedDuration, availableWindowMinutes) / availableWindowMinutes) * 100).toFixed(1));
 
       const overlapLengthMeters = Math.round((Math.max(0, overlapEnd - overlapStart)) * 1000);
+      const isCoordinationOpportunity = trackCompatible;
 
       results.push({
         hasOverlap: true,
         isSpatialOverlap: true,
+        isCoordinationOpportunity,
+        coordinationCategory: isCoordinationOpportunity ? 'COORDINATION_OPPORTUNITY' : 'SEPARATE_BLOCKS',
         overlapStartKm: overlapStart,
         overlapEndKm: overlapEnd,
         overlapLengthMeters,

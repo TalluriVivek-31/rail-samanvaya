@@ -111,6 +111,7 @@ export interface LocationIntelligenceData {
     closestTrainDelay?: number;
     conflictCategory: ConflictCategory;
     conflictSummary: string;
+    nearbyTrains?: any[];
   };
 
   nearbyStations?: any[];
@@ -395,24 +396,124 @@ export async function resolveLocationIntelligence(
   const availableTracks = infraResult.availableTracks || [];
   const matchedTrack = availableTracks.find((t: any) => t.trackName === requestedTrack) || availableTracks[0];
 
-  // 5. RailRadar Live Train Relationship Evaluation
+  // 5. RailRadar Live Train Relationship Evaluation (Specification Sections 20, 21, 22, 23, 35)
   // Evaluates live train movements approaching the maintenance KM interval
   const normalizedRequestedTrack = requestedTrack.toLowerCase();
-  const approachingTrains = (activeLiveTrains || []).filter(t => {
-    // Check if train is operating on same section or corridor
-    const trainTrack = (t.track || '').toLowerCase();
-    const isSameTrack = trainTrack.includes('up') && normalizedRequestedTrack.includes('up') ||
-                        trainTrack.includes('dn') && normalizedRequestedTrack.includes('dn');
-    return isSameTrack;
+  const hasLiveTelemetry = Array.isArray(activeLiveTrains) && activeLiveTrains.length > 0;
+
+  const analyzedTrains = (activeLiveTrains || []).map(t => {
+    const trainTrack = (t.track || t.direction || '').toLowerCase();
+    const isSameTrack = (trainTrack.includes('up') && normalizedRequestedTrack.includes('up')) ||
+                        (trainTrack.includes('dn') && normalizedRequestedTrack.includes('dn')) ||
+                        (!trainTrack && normalizedRequestedTrack.includes('up'));
+
+    const trainKm = typeof t.currentKm === 'number' ? t.currentKm : (typeof t.current_km === 'number' ? t.current_km : NaN);
+    const speed = typeof t.speedKmph === 'number' ? t.speedKmph : (typeof t.speed === 'number' ? t.speed : 0);
+    const delay = typeof t.delayMinutes === 'number' ? t.delayMinutes : 0;
+
+    let distanceToMaintenanceKm: number | null = null;
+    let movementDirection: 'Approaching' | 'Moving away' | 'Route relationship unavailable' = 'Route relationship unavailable';
+    let distanceDisplay = 'Route relationship unavailable';
+    let etaDisplay = 'ETA unavailable';
+    let etaMinutes: number | null = null;
+    let conflictStatus: 'HARD_CONFLICT' | 'POTENTIAL_CONFLICT' | 'NO_CONFLICT' | 'UNKNOWN' = 'NO_CONFLICT';
+
+    if (!isNaN(trainKm)) {
+      const isUpDirection = trainTrack.includes('up') || (t.direction === 'UP');
+      if (isUpDirection) {
+        if (trainKm < sKm) {
+          distanceToMaintenanceKm = Math.round((sKm - trainKm) * 10) / 10;
+          movementDirection = 'Approaching';
+          distanceDisplay = `${distanceToMaintenanceKm} km`;
+        } else if (trainKm > eKm) {
+          distanceToMaintenanceKm = Math.round((trainKm - eKm) * 10) / 10;
+          movementDirection = 'Moving away';
+          distanceDisplay = `${distanceToMaintenanceKm} km (past site)`;
+        } else {
+          distanceToMaintenanceKm = 0;
+          movementDirection = 'Approaching';
+          distanceDisplay = '0 km (inside maintenance zone)';
+        }
+      } else {
+        // DN direction
+        if (trainKm > eKm) {
+          distanceToMaintenanceKm = Math.round((trainKm - eKm) * 10) / 10;
+          movementDirection = 'Approaching';
+          distanceDisplay = `${distanceToMaintenanceKm} km`;
+        } else if (trainKm < sKm) {
+          distanceToMaintenanceKm = Math.round((sKm - trainKm) * 10) / 10;
+          movementDirection = 'Moving away';
+          distanceDisplay = `${distanceToMaintenanceKm} km (past site)`;
+        } else {
+          distanceToMaintenanceKm = 0;
+          movementDirection = 'Approaching';
+          distanceDisplay = '0 km (inside maintenance zone)';
+        }
+      }
+
+      if (movementDirection === 'Approaching' && distanceToMaintenanceKm !== null) {
+        if (speed > 10) {
+          const travelMinutes = Math.round((distanceToMaintenanceKm / speed) * 60);
+          etaMinutes = travelMinutes + delay;
+          const nowD = new Date();
+          nowD.setMinutes(nowD.getMinutes() + (etaMinutes ?? 0));
+          const etaTimeStr = nowD.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+          etaDisplay = `${etaTimeStr} (${etaMinutes} min)`;
+        } else {
+          etaDisplay = speed === 0 ? 'Station Halt / Stationary' : 'ETA unavailable';
+        }
+
+        if (isSameTrack) {
+          if (distanceToMaintenanceKm <= 15 || (etaMinutes !== null && etaMinutes <= 30)) {
+            conflictStatus = 'HARD_CONFLICT';
+          } else if (distanceToMaintenanceKm <= 40 || (etaMinutes !== null && etaMinutes <= 60)) {
+            conflictStatus = 'POTENTIAL_CONFLICT';
+          }
+        }
+      }
+    }
+
+    const confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN' = 
+      (t.latitude && t.longitude) ? 'HIGH' :
+      (t.currentStation && t.currentStation !== '—') ? 'MEDIUM' : 'LOW';
+
+    return {
+      trainNumber: String(t.trainNumber || t.train_number || 'UNKNOWN'),
+      trainName: String(t.trainName || t.train_name || `Train ${t.trainNumber || ''}`),
+      status: String(t.status || 'RUNNING'),
+      currentLocationDisplay: t.currentStationName ? `${t.currentStationName} (${t.currentStation})` : (t.currentStation || 'In Section'),
+      currentKm: trainKm,
+      speedKmph: speed,
+      delayMinutes: delay,
+      distanceToMaintenanceKm,
+      distanceDisplay,
+      movementDirection,
+      etaDisplay,
+      etaMinutes,
+      conflictStatus,
+      confidence,
+      track: t.track || t.direction || requestedTrack
+    };
   });
 
-  let conflictCat: ConflictCategory = 'NO_CONFLICT';
+  const approachingTrains = analyzedTrains.filter(t => t.movementDirection === 'Approaching' && (t.conflictStatus === 'HARD_CONFLICT' || t.conflictStatus === 'POTENTIAL_CONFLICT'));
+  const hardConflicts = analyzedTrains.filter(t => t.conflictStatus === 'HARD_CONFLICT');
+
+  let conflictCat: ConflictCategory | 'UNKNOWN' = 'NO_CONFLICT';
   let conflictSummary = 'No conflicting train paths in immediate safety window';
 
-  if (approachingTrains.length > 0) {
+  if (!hasLiveTelemetry) {
+    // Specification Section 35: Never convert UNKNOWN into NO_CONFLICT
+    conflictCat = 'UNKNOWN';
+    conflictSummary = 'Train conflict status: UNKNOWN. Reason: Live telemetry unavailable.';
+  } else if (hardConflicts.length > 0) {
+    conflictCat = 'HARD_CONFLICT';
+    const firstTrain = hardConflicts[0];
+    conflictSummary = `TRAIN MOVEMENT CONFLICT: ${firstTrain.trainName} (${firstTrain.trainNumber}) ${firstTrain.distanceDisplay} approaching on ${requestedTrack} (ETA: ${firstTrain.etaDisplay}).`;
+  } else if (approachingTrains.length > 0) {
     conflictCat = 'HARD_CONFLICT';
     const firstTrain = approachingTrains[0];
-    conflictSummary = `TRAIN MOVEMENT CONFLICT: ${firstTrain.trainName || firstTrain.trainNumber} on ${requestedTrack} projected passage overlaps safety headway margin.`;
+    conflictSummary = `POTENTIAL TRAIN CONFLICT: ${firstTrain.trainName} (${firstTrain.trainNumber}) approaching at ${firstTrain.distanceDisplay} on ${requestedTrack}.`;
   }
 
   return {
@@ -467,12 +568,13 @@ export async function resolveLocationIntelligence(
     liveTrainContext: {
       sectionTrafficDensity: primarySection.sectionId === 'SEC-A' ? 'HIGH' : 'MEDIUM',
       approachingTrainsCount: approachingTrains.length,
-      earliestArrivalMinutes: approachingTrains.length > 0 ? 25 : null,
+      earliestArrivalMinutes: approachingTrains[0]?.etaMinutes || null,
       closestTrainNumber: approachingTrains[0]?.trainNumber,
       closestTrainName: approachingTrains[0]?.trainName,
       closestTrainDelay: approachingTrains[0]?.delayMinutes || 0,
-      conflictCategory: conflictCat,
-      conflictSummary
+      conflictCategory: conflictCat as ConflictCategory,
+      conflictSummary,
+      nearbyTrains: analyzedTrains
     },
     nearbyStations: STATIONS.map(s => ({
       code: s.code,

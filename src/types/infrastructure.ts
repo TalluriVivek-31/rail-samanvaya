@@ -28,6 +28,9 @@ export interface InfrastructureAsset {
   trackId: string;
   trackName: TrackType;
   status: 'OPERATIONAL' | 'NEEDS_MAINTENANCE' | 'CRITICAL_WATCH';
+  proximity?: 'WITHIN_RANGE' | 'INTERSECTS_RANGE' | 'NEARBY';
+  distanceMeters?: number;
+  isAffected?: boolean;
 }
 
 export interface TrackMaster {
@@ -124,8 +127,11 @@ export interface LocationDetectionResult {
   availableTracks: TrackMaster[];
   affectedAssets: {
     all: InfrastructureAsset[];
+    withinRange?: InfrastructureAsset[];
+    nearby?: InfrastructureAsset[];
     byDepartment: Record<Department, InfrastructureAsset[]>;
   };
+  stationContextType?: 'WITHIN_STATION_LIMITS' | 'BETWEEN_STATIONS' | 'CROSSING_STATION_LIMITS' | 'NEAR_STATION';
   
   // Core Station Identification
   primaryStation: StationMaster | null;
@@ -172,8 +178,12 @@ export interface CandidatePlanningWindow {
   candidate_end?: string;   // Canonical alias for endTime
   required_duration?: number;
   available_duration?: number;
-  status: 'CONFLICT' | 'FEASIBLE' | 'INSUFFICIENT_DURATION';
+  status: 'CONFLICT' | 'FEASIBLE' | 'INSUFFICIENT_DURATION' | 'UNKNOWN' | 'HARD_CONFLICT' | 'POTENTIAL_CONFLICT';
   train_conflicts?: number;
+  trainConflictsCount?: number;
+  coordinationCount?: number;
+  operationalImpact?: 'Low' | 'Medium' | 'High';
+  priorityFit?: 'High' | 'Medium' | 'Low';
   conflictingTrain?: {
     trainNumber: string;
     trainName: string;
@@ -197,6 +207,8 @@ export interface CandidatePlanningWindow {
 export interface SpatialOverlapResult {
   hasOverlap: boolean;
   isSpatialOverlap?: boolean;
+  isCoordinationOpportunity?: boolean;
+  coordinationCategory?: 'COORDINATION_OPPORTUNITY' | 'SEPARATE_BLOCKS';
   section?: string;
   overlapKmRange?: string;
   overlapStartKm: number;

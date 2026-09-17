@@ -4,7 +4,16 @@ import {
   SECTIONS, 
   STATIONS, 
   ASSETS, 
-  detectLocation 
+  detectLocation,
+  getSections,
+  resolveSections,
+  getLines,
+  getTracks,
+  getAssets,
+  getAssetsByRange,
+  getStationsList,
+  parseKm,
+  formatKm
 } from '../services/infrastructureService.js';
 import { resolveLocationIntelligence } from '../services/locationIntelligenceService.js';
 import { 
@@ -24,6 +33,155 @@ router.get('/master', (req: Request, res: Response): void => {
     sections: SECTIONS,
     stations: STATIONS,
     assetsCount: ASSETS.length,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// GET /api/infrastructure/sections
+router.get('/sections', (req: Request, res: Response): void => {
+  const corridorCode = req.query.corridor as string | undefined;
+  const sections = getSections(corridorCode);
+  res.json({
+    success: true,
+    count: sections.length,
+    sections,
+    source: 'INFRASTRUCTURE_MASTER',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// GET /api/infrastructure/sections/resolve?startKm=...&endKm=...
+router.get('/sections/resolve', (req: Request, res: Response): void => {
+  const startKm = parseKm(req.query.startKm as string);
+  const endKm = parseKm(req.query.endKm as string);
+  if (isNaN(startKm) || isNaN(endKm)) {
+    res.status(400).json({ success: false, error: 'Valid startKm and endKm required' });
+    return;
+  }
+  const sections = resolveSections(startKm, endKm);
+  res.json({
+    success: true,
+    count: sections.length,
+    sections,
+    isCrossSection: sections.length > 1,
+    source: 'INFRASTRUCTURE_MASTER',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// GET /api/infrastructure/lines?startKm=...&endKm=...
+router.get('/lines', (req: Request, res: Response): void => {
+  const startKm = req.query.startKm ? parseKm(req.query.startKm as string) : undefined;
+  const endKm = req.query.endKm ? parseKm(req.query.endKm as string) : undefined;
+  const lines = getLines(startKm, endKm);
+  res.json({
+    success: true,
+    count: lines.length,
+    lines,
+    source: 'INFRASTRUCTURE_MASTER',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// GET /api/infrastructure/tracks?startKm=...&endKm=...
+router.get('/tracks', (req: Request, res: Response): void => {
+  // If bbox is supplied, handle bounding box for GIS map
+  if (req.query.bbox) {
+    const bboxQuery = req.query.bbox as string;
+    const zoom = req.query.zoom ? parseInt(req.query.zoom as string, 10) : 6;
+    let bbox: [number, number, number, number] = [6.0, 68.0, 37.5, 97.5];
+    const parts = bboxQuery.split(',').map(Number);
+    if (parts.length === 4 && parts.every(n => !isNaN(n))) {
+      bbox = [parts[0], parts[1], parts[2], parts[3]];
+    }
+    const tracks = getTracksInBoundingBox(bbox, zoom);
+    res.json({
+      success: true,
+      count: tracks.length,
+      tracks,
+      source: 'OSM',
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+
+  const startKm = req.query.startKm ? parseKm(req.query.startKm as string) : undefined;
+  const endKm = req.query.endKm ? parseKm(req.query.endKm as string) : undefined;
+  const tracks = getTracks(startKm, endKm);
+  res.json({
+    success: true,
+    count: tracks.length,
+    tracks,
+    source: 'INFRASTRUCTURE_MASTER',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// GET /api/infrastructure/assets?department=...
+router.get('/assets', (req: Request, res: Response): void => {
+  const dept = req.query.department as string | undefined;
+  const assets = getAssets(dept);
+  res.json({
+    success: true,
+    count: assets.length,
+    assets,
+    source: 'INFRASTRUCTURE_MASTER',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// GET /api/infrastructure/assets/by-range?startKm=...&endKm=...&track=...&department=...
+router.get('/assets/by-range', (req: Request, res: Response): void => {
+  const startKm = parseKm(req.query.startKm as string);
+  const endKm = parseKm(req.query.endKm as string);
+  if (isNaN(startKm) || isNaN(endKm)) {
+    res.status(400).json({ success: false, error: 'Valid startKm and endKm required' });
+    return;
+  }
+  const track = req.query.track as string | undefined;
+  const department = req.query.department as string | undefined;
+  const assets = getAssetsByRange(startKm, endKm, track, department);
+  res.json({
+    success: true,
+    count: assets.length,
+    assets,
+    source: 'INFRASTRUCTURE_MASTER',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// GET /api/infrastructure/location/resolve?startKm=...&endKm=...&stationCode=...
+router.get('/location/resolve', (req: Request, res: Response): void => {
+  const startLocation = (req.query.startKm as string) || (req.query.startLocation as string);
+  const endLocation = (req.query.endKm as string) || (req.query.endLocation as string);
+
+  if (!startLocation || !endLocation) {
+    res.status(400).json({ success: false, error: 'Both startKm and endKm query parameters are required' });
+    return;
+  }
+
+  const result = detectLocation(startLocation, endLocation);
+  if (!result.isValid) {
+    res.status(400).json({ success: false, error: result.error, timestamp: new Date().toISOString() });
+    return;
+  }
+
+  res.json({
+    success: true,
+    data: result,
+    source: 'INFRASTRUCTURE_MASTER',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// GET /api/infrastructure/stations
+router.get('/stations', (req: Request, res: Response): void => {
+  const stations = getStationsList();
+  res.json({
+    success: true,
+    count: stations.length,
+    stations,
+    source: 'INFRASTRUCTURE_MASTER',
     timestamp: new Date().toISOString()
   });
 });

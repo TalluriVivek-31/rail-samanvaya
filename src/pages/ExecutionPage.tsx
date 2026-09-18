@@ -31,6 +31,7 @@ import type {
   DepartmentWorkStatus,
   InfrastructureCondition
 } from '../types/samnvay';
+import { isExecutionEligible, isCompleted } from '../utils/requestLifecycle';
 
 interface ExecutionPageProps {
   onNavigate?: (page: SamnvayPage) => void;
@@ -73,13 +74,17 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
   const [resSpeed, setResSpeed] = useState<number>(45);
   const [resReason, setResReason] = useState('Consolidation of disturbed ballast bed after track maintenance.');
 
+  const executionRequests = useMemo(() => {
+    return state.requests.filter(r => isExecutionEligible(r) || isCompleted(r));
+  }, [state.requests]);
+
   const activeReq = useMemo(() => {
     if (selectedReqId) {
-      const found = state.requests.find(r => r.id === selectedReqId);
+      const found = executionRequests.find(r => r.id === selectedReqId);
       if (found) return found;
     }
     // Prioritize active or executing blocks
-    const executing = state.requests.find(r => 
+    const executing = executionRequests.find(r => 
       r.status === 'IMPOSED' || 
       r.status === 'WORK_STARTED' || 
       r.status === 'Block Started' || 
@@ -90,24 +95,18 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
     );
     if (executing) return executing;
 
-    const scheduled = state.requests.find(r => 
+    const scheduled = executionRequests.find(r => 
       r.status === 'SCHEDULED' || 
       r.status === 'Scheduled' || 
-      r.status === 'AUTHORIZED' || 
-      r.status === 'Approved'
+      r.status === 'AUTHORIZED'
     );
     if (scheduled) return scheduled;
 
-    const completed = state.requests.find(r => 
-      r.status === 'NORMAL_RESTORED' || 
-      r.status === 'RESTRICTED' || 
-      r.status === 'CLOSED' || 
-      r.status === 'Closed'
-    );
+    const completed = executionRequests.find(r => isCompleted(r));
     if (completed) return completed;
 
-    return state.requests[0];
-  }, [selectedReqId, state.requests]);
+    return executionRequests[0] || null;
+  }, [selectedReqId, executionRequests]);
 
   const currentStepIndex = state.executionSteps.findIndex(s => s.status === 'IN_PROGRESS');
   const currentStep = currentStepIndex !== -1 ? state.executionSteps[currentStepIndex] : state.executionSteps[0];
@@ -273,7 +272,7 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
           <span className="text-neutral-500 font-bold uppercase text-[10px]">Select Requisition to Track:</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {state.requests.map(req => {
+          {executionRequests.map(req => {
             const isSelected = activeReq.id === req.id;
             return (
               <button
@@ -491,16 +490,35 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
             )}
 
             {/* Step D: Return Block to Control (Field) */}
-            {(activeReq.status === 'COMPLETED' || activeReq.status === 'Work Completed' || activeReq.status === 'PARTIALLY_COMPLETED') && (
-              <button
-                type="button"
-                onClick={() => returnBlock(activeReq.id)}
-                className="px-4 py-2 rounded-full bg-sky-300 hover:bg-sky-200 text-neutral-950 font-bold text-xs shadow-xs transition active:scale-98 flex items-center gap-1.5 cursor-pointer"
-              >
-                <Send className="w-4 h-4" />
-                <span>Return Block to Section Controller (Handover)</span>
-              </button>
-            )}
+            {(activeReq.status === 'COMPLETED' || activeReq.status === 'Work Completed' || activeReq.status === 'PARTIALLY_COMPLETED') && (() => {
+              const pendingDepts = (activeReq.departmentExecutionStatuses || []).filter(
+                d => d.status !== 'COMPLETED' && d.status !== 'PARTIALLY_COMPLETED'
+              );
+              const hasPending = pendingDepts.length > 0;
+              return (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => returnBlock(activeReq.id)}
+                    disabled={hasPending}
+                    className={`px-4 py-2 rounded-full font-bold text-xs shadow-xs transition flex items-center gap-1.5 ${
+                      hasPending
+                        ? 'bg-neutral-800 text-neutral-500 border border-neutral-700 cursor-not-allowed'
+                        : 'bg-sky-300 hover:bg-sky-200 text-neutral-950 cursor-pointer active:scale-98'
+                    }`}
+                    title={hasPending ? `Cannot return block: Awaiting sign-off from ${pendingDepts.map(d => d.department).join(', ')}` : 'Handover block to Section Controller'}
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>Return Block to Section Controller (Handover)</span>
+                  </button>
+                  {hasPending && (
+                    <span className="text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded font-mono">
+                      ⚠️ Awaiting: {pendingDepts.map(d => d.department).join(', ')}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Step E: Verification & Restoration Gate (Control & Field) */}
             {(activeReq.status === 'BLOCK_RETURNED' || activeReq.status === 'RESTORATION_PENDING') && (
@@ -657,50 +675,70 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
           })}
         </div>
 
-        {/* MULTI-DEPARTMENT EXECUTION STATUS BREAKDOWN */}
+        {/* MULTI-DEPARTMENT EXECUTION STATUS BREAKDOWN (Strictly Separated from Overall Block Status) */}
         {activeReq.departmentExecutionStatuses && activeReq.departmentExecutionStatuses.length > 0 && (
           <div className="p-5 rounded-2xl bg-railway-canvas border border-railway-border space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center space-x-2 text-xs font-mono font-bold text-railway-forest uppercase">
                 <Layers className="w-4 h-4 text-blue-600" />
-                <span>Multi-Department Coordinated Bundle Execution Matrix</span>
+                <span>Department Work Status Matrix (Decoupled from Overall Block Possession)</span>
               </div>
               <span className="text-[10px] font-mono text-railway-textMuted">
-                EACH DEPARTMENT MUST SIGN OFF RESTORATION PRIOR TO BLOCK RELEASE
+                INVARIANT: ONE DEPT COMPLETION DOES NOT RELEASE POSSESSION · ALL WINGS MUST SIGN OFF
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
-              {activeReq.departmentExecutionStatuses.map(deptStatus => (
-                <div key={deptStatus.department} className="p-4 rounded-xl bg-white border border-railway-border space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-railway-textPrimary">{deptStatus.department} Wing</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      deptStatus.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
-                      deptStatus.status === 'PARTIALLY_COMPLETED' ? 'bg-amber-100 text-amber-800' :
-                      deptStatus.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-800 animate-pulse' :
-                      'bg-neutral-100 text-neutral-600'
-                    }`}>
-                      {deptStatus.status}
-                    </span>
+              {activeReq.departmentExecutionStatuses.map(deptStatus => {
+                const userRole = state.currentUser.role;
+                const isMaster = userRole === 'MASTER';
+                const isControl = userRole === 'COA / Operations' || userRole === 'Section Controller';
+                const isDeptAuthorized = isMaster || isControl ||
+                  (((deptStatus.department as string) === 'Engineering' || deptStatus.department === 'P.Way') && (userRole === 'P.Way Engineer' || userRole.includes('Engineering') || userRole.includes('P.Way'))) ||
+                  (deptStatus.department === 'S&T' && (userRole === 'S&T Engineer' || userRole.includes('S&T') || userRole.includes('Signal'))) ||
+                  (deptStatus.department === 'TRD' && (userRole === 'TRD Engineer' || userRole.includes('TRD') || userRole.includes('Traction')));
+
+                return (
+                  <div key={deptStatus.department} className="p-4 rounded-xl bg-white border border-railway-border space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-railway-textPrimary">{deptStatus.department} Wing</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        deptStatus.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
+                        deptStatus.status === 'PARTIALLY_COMPLETED' ? 'bg-amber-100 text-amber-800' :
+                        deptStatus.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-800 animate-pulse' :
+                        'bg-neutral-100 text-neutral-600'
+                      }`}>
+                        {deptStatus.status}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-railway-textSecondary font-sans line-clamp-2">
+                      {deptStatus.workDescription}
+                    </p>
+                    <div className="pt-2 border-t border-railway-border flex items-center justify-between text-[10px] text-railway-textMuted">
+                      <span className="truncate mr-1">{deptStatus.signedOffBy ? `Signed: ${deptStatus.signedOffBy}` : 'Pending Sign-off'}</span>
+                      {deptStatus.status !== 'COMPLETED' && (
+                        isDeptAuthorized ? (
+                          <button
+                            type="button"
+                            onClick={() => updateDepartmentExecutionStatus(activeReq.id, deptStatus.department, 'COMPLETED', 'Restoration verified')}
+                            className="px-2.5 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold border border-emerald-200 cursor-pointer transition active:scale-95 flex-shrink-0"
+                            title={`Sign off physical completion and safety restoration for ${deptStatus.department}`}
+                          >
+                            Sign Off
+                          </button>
+                        ) : (
+                          <span 
+                            className="px-2 py-0.5 rounded bg-neutral-100 text-neutral-500 text-[9px] border border-neutral-200 cursor-not-allowed flex-shrink-0"
+                            title={`Only ${deptStatus.department} Engineer or Section Controller can sign off`}
+                          >
+                            {deptStatus.department} Only
+                          </span>
+                        )
+                      )}
+                    </div>
                   </div>
-                  <p className="text-[11px] text-railway-textSecondary font-sans line-clamp-2">
-                    {deptStatus.workDescription}
-                  </p>
-                  <div className="pt-2 border-t border-railway-border flex items-center justify-between text-[10px] text-railway-textMuted">
-                    <span>{deptStatus.signedOffBy ? `Signed: ${deptStatus.signedOffBy}` : 'Pending Sign-off'}</span>
-                    {deptStatus.status !== 'COMPLETED' && (
-                      <button
-                        type="button"
-                        onClick={() => updateDepartmentExecutionStatus(activeReq.id, deptStatus.department, 'COMPLETED', 'Restoration verified')}
-                        className="px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold border border-emerald-200 cursor-pointer"
-                      >
-                        Sign Off
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

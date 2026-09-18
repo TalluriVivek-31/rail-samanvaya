@@ -14,7 +14,7 @@ import {
   Train as TrainIcon,
   ShieldAlert
 } from 'lucide-react';
-import { DigitalTwinMap } from './DigitalTwinMap';
+import { RealRailwayMap } from './RealRailwayMap';
 
 interface DigitalTwin3DProps {
   onOpenSectionDrawer?: (sectionId: string) => void;
@@ -492,9 +492,9 @@ export const DigitalTwin3D: React.FC<DigitalTwin3DProps> = ({ onOpenSectionDrawe
         </div>
       </div>
 
-      {/* Render View: Tactical GIS Map or 3D WebGL Perspective */}
+      {/* Render View: Real Railway Map (Master Map) or 3D WebGL Perspective */}
       {activeViewMode === 'map' ? (
-        <DigitalTwinMap />
+        <RealRailwayMap />
       ) : (
         <div className="relative w-full h-[700px] bg-samnvay-bg rounded-2xl border border-samnvay-border overflow-hidden shadow-2xl">
           {/* 3D Canvas */}

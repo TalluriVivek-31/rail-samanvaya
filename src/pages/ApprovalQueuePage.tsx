@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { BlockRequest, Department, UserRole, SamnvayPage } from '../types/samnvay';
 import { calculateCpmActivityNetwork } from '../utils/conflictPlanner';
+import { isPendingApproval } from '../utils/requestLifecycle';
 
 interface ApprovalQueuePageProps {
   onNavigate?: (page: SamnvayPage) => void;
@@ -72,23 +73,11 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
   const [rejectModalReq, setRejectModalReq] = useState<BlockRequest | null>(null);
   const [rejectReason, setRejectReason] = useState('');
 
-  // Filter requests that are in pre-approval stages or revision
+  const [approveModalReq, setApproveModalReq] = useState<BlockRequest | null>(null);
+
+  // Canonical filter: only requisitions awaiting initial technical or departmental approval
   const pendingRequests = state.requests.filter(r => {
-    const sNorm = (r.status || '').toUpperCase().replace(/[\s\-_/]+/g, '');
-    const isPreApproval = 
-      sNorm === 'SUBMITTED' || 
-      sNorm === 'DEPARTMENTAPPROVED' ||
-      sNorm === 'PLANNING' ||
-      sNorm === 'PLANNINGQUEUE' ||
-      sNorm === 'BLOCKWINDOWALLOCATED' ||
-      sNorm === 'PWAYSTTRDREVIEW' || 
-      sNorm === 'VERIFIED' || 
-      sNorm === 'APPROVALPENDING' ||
-      sNorm === 'PENDING' || 
-      sNorm === 'REVIEW' || 
-      sNorm === 'REVISION' ||
-      sNorm === 'REVISIONREQUIRED';
-    if (!isPreApproval) return false;
+    if (!isPendingApproval(r)) return false;
     if (filterDept !== 'ALL' && r.department !== filterDept) return false;
     return true;
   });
@@ -121,6 +110,12 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
     rejectRequestWithReason(rejectModalReq.id, rejectReason);
     setRejectModalReq(null);
     setRejectReason('');
+  };
+
+  const handleConfirmApprove = () => {
+    if (!approveModalReq) return;
+    approveRequest(approveModalReq.id, `Formal approval granted by ${state.currentUser.role} ${state.currentUser.name}`);
+    setApproveModalReq(null);
   };
 
   return (
@@ -239,7 +234,13 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
           </div>
         ) : (
           pendingRequests.map(req => {
-            const isCreator = req.engineer === state.currentUser.name && state.currentUser.role !== 'MASTER';
+            const isCreator = (
+              req.engineer?.toLowerCase().trim() === state.currentUser.name.toLowerCase().trim() ||
+              (req as any).creatorId === state.currentUser.employeeId ||
+              (req as any).creatorId === state.currentUser.id ||
+              (req as any).submittedBy === state.currentUser.name ||
+              (req as any).submittedBy === state.currentUser.employeeId
+            ) && state.currentUser.role !== 'MASTER';
             const isExpanded = expandedRequestId === req.id;
 
             // CPM network for this requisition + any overlapping requests
@@ -659,6 +660,20 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
                       </button>
                     )}
 
+                    {/* Direct Requisition Approval into Approved Pool */}
+                    {(state.currentUser.role === 'Planning Officer' || state.currentUser.role === 'COA / Operations' || state.currentUser.role === 'MASTER') && (
+                      <button
+                        type="button"
+                        disabled={isCreator}
+                        onClick={() => setApproveModalReq(req)}
+                        className="px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                        title={isCreator ? "Self-approval blocked: creator cannot approve own requisition" : "Approve requisition into the Approved planning pool"}
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-white" />
+                        <span>Approve Requisition</span>
+                      </button>
+                    )}
+
                     {/* Request Clarification via Communication */}
                     <button
                       type="button"
@@ -997,6 +1012,61 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
                 className="px-6 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
               >
                 Confirm Permanent Deletion
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* DIALOG 4: CONFIRM REQUISITION APPROVAL                                     */}
+      {/* ========================================================================= */}
+      {approveModalReq && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white border border-railway-border rounded-3xl max-w-md w-full shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-railway-border pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-railway-textPrimary text-sm">Approve Maintenance Requisition</h3>
+                  <p className="text-[11px] font-mono text-railway-textMuted">{approveModalReq.id} · {approveModalReq.department}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setApproveModalReq(null)}
+                className="text-neutral-400 hover:text-neutral-700"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-900 leading-relaxed">
+              <p>
+                <strong>Operational Decision:</strong> Moving <strong>{approveModalReq.id}</strong> ({approveModalReq.work}) on section {approveModalReq.section} to <strong>Approved</strong> pool makes it immediately available for Dynamic CP-SAT Automatic Block Planning.
+              </p>
+            </div>
+
+            <div className="text-xs font-mono text-neutral-600 bg-neutral-50 p-3 rounded-xl border border-neutral-200 space-y-1">
+              <div>Approving Officer: <strong>{state.currentUser.name}</strong> ({state.currentUser.role})</div>
+              <div>Requested Window: <strong>{approveModalReq.duration} min</strong> @ {approveModalReq.preferredStartTime || approveModalReq.preferredTime} IST</div>
+            </div>
+
+            <div className="pt-2 border-t border-railway-border flex items-center justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setApproveModalReq(null)}
+                className="px-5 py-2 rounded-full border border-railway-border text-xs font-semibold text-railway-textSecondary hover:text-railway-textPrimary cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmApprove}
+                className="px-6 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
+              >
+                Confirm Approval
               </button>
             </div>
           </div>

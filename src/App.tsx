@@ -18,9 +18,9 @@ import {
 } from './pages';
 import { CreateRequestModal, SectionDetailDrawer } from './components/modals';
 import { RailwayChatDrawer } from './components/chat';
-import { DigitalTwin3D } from './components/twin';
 import { useSamnvayStore } from './store/useSamnvayStore';
 import { initFirebaseSync } from './services/firebaseSync';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { Train } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -37,9 +37,14 @@ export const App: React.FC = () => {
   // Hash route interception and redirect for unauthenticated users
   useEffect(() => {
     const handleHash = () => {
-      const hash = window.location.hash.replace('#', '') as SamnvayPage;
+      let hash = window.location.hash.replace('#', '') as SamnvayPage;
+      // Redirect legacy twin route directly to live-trains
+      if (hash === 'twin') {
+        hash = 'live-trains';
+        window.location.hash = '#live-trains';
+      }
       const validPages: SamnvayPage[] = [
-        'overview', 'live-trains', 'twin', 'requests', 
+        'overview', 'live-trains', 'requests', 
         'approval', 'planning', 'conflict', 'execution', 'communication', 'audit'
       ];
       if (validPages.includes(hash)) {
@@ -87,8 +92,7 @@ export const App: React.FC = () => {
   const userPerms = state.currentUser.permissions || ['overview'];
   const isPermitted = (page: SamnvayPage) => 
     userPerms.includes('all') || 
-    userPerms.includes(page) || 
-    (page === 'twin' && (userPerms.includes('live-trains') || userPerms.includes('overview') || userPerms.includes('planning')));
+    userPerms.includes(page);
   const activePage: SamnvayPage = isPermitted(currentPage) ? currentPage : 'overview';
 
   const handleOpenSectionDrawer = (sectionId: string) => {
@@ -120,65 +124,64 @@ export const App: React.FC = () => {
         {/* Main Operations Viewport */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-railway-canvas">
           <div className="max-w-7xl mx-auto">
-            {activePage === 'overview' && (
-              <OverviewPage 
-                onOpenSectionDrawer={handleOpenSectionDrawer}
-                onNavigate={setCurrentPage}
-                onOpenCreateModal={() => setIsCreateModalOpen(true)}
-              />
-            )}
+            <ErrorBoundary
+              fallbackTitle="Operational Viewport Notice"
+              fallbackMessage="An unexpected issue occurred while rendering this operations module. Use the retry button below or select another section from the command sidebar."
+            >
+              {activePage === 'overview' && (
+                <OverviewPage 
+                  onOpenSectionDrawer={handleOpenSectionDrawer}
+                  onNavigate={setCurrentPage}
+                  onOpenCreateModal={() => setIsCreateModalOpen(true)}
+                />
+              )}
 
-            {activePage === 'live-trains' && (
-              <LiveTrainsPage />
-            )}
+              {activePage === 'live-trains' && (
+                <LiveTrainsPage />
+              )}
 
-            {activePage === 'twin' && (
-              <DigitalTwin3D 
-                onOpenSectionDrawer={handleOpenSectionDrawer}
-              />
-            )}
+              {activePage === 'requests' && (
+                <BlockRequestsPage 
+                  onOpenCreateModal={() => setIsCreateModalOpen(true)}
+                  onSelectRequest={handleSelectRequest}
+                  onNavigate={setCurrentPage}
+                />
+              )}
 
-            {activePage === 'requests' && (
-              <BlockRequestsPage 
-                onOpenCreateModal={() => setIsCreateModalOpen(true)}
-                onSelectRequest={handleSelectRequest}
-                onNavigate={setCurrentPage}
-              />
-            )}
+              {activePage === 'approval' && (
+                <ApprovalQueuePage 
+                  onNavigate={setCurrentPage}
+                />
+              )}
 
-            {activePage === 'approval' && (
-              <ApprovalQueuePage 
-                onNavigate={setCurrentPage}
-              />
-            )}
+              {activePage === 'planning' && (
+                <AiPlanningPage 
+                  onNavigate={setCurrentPage}
+                />
+              )}
 
-            {activePage === 'planning' && (
-              <AiPlanningPage 
-                onNavigate={setCurrentPage}
-              />
-            )}
+              {activePage === 'conflict' && (
+                <ConflictMonitorPage 
+                  onNavigate={setCurrentPage}
+                />
+              )}
 
-            {activePage === 'conflict' && (
-              <ConflictMonitorPage 
-                onNavigate={setCurrentPage}
-              />
-            )}
+              {activePage === 'execution' && (
+                <ExecutionPage 
+                  onNavigate={setCurrentPage}
+                />
+              )}
 
-            {activePage === 'execution' && (
-              <ExecutionPage 
-                onNavigate={setCurrentPage}
-              />
-            )}
+              {activePage === 'communication' && (
+                <CommunicationPage 
+                  onNavigate={setCurrentPage}
+                />
+              )}
 
-            {activePage === 'communication' && (
-              <CommunicationPage 
-                onNavigate={setCurrentPage}
-              />
-            )}
-
-            {activePage === 'audit' && (
-              <AuditTrailPage />
-            )}
+              {activePage === 'audit' && (
+                <AuditTrailPage />
+              )}
+            </ErrorBoundary>
           </div>
         </main>
       </div>

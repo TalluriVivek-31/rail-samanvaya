@@ -202,6 +202,9 @@ export interface CandidatePlanningWindow {
   isDurationSufficient?: boolean;
   reason: string;
   isRecommended?: boolean;
+  candidateDate?: string;
+  dayLabel?: string;
+  slotType?: 'NIGHT' | 'DAY' | 'PEAK' | 'OFF_PEAK';
 }
 
 export interface SpatialOverlapResult {

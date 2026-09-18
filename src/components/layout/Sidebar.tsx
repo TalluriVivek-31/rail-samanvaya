@@ -9,12 +9,12 @@ import {
   PlayCircle, 
   MessageSquare,
   History, 
-  Layers,
   TrainTrack,
   ShieldCheck
 } from 'lucide-react';
 import { useSamnvayStore } from '../../store/useSamnvayStore';
 import type { SamnvayPage } from '../../types/samnvay';
+import { isPendingApproval, isPlanningEligible, isExecutionEligible } from '../../utils/requestLifecycle';
 
 export type { SamnvayPage };
 
@@ -26,17 +26,10 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) => {
   const { state } = useSamnvayStore();
 
-  // Dynamic Badges from store (count all requests awaiting operational concurrence)
-  const pendingRequestsCount = state.requests.filter(r => 
-    r.status === 'Submitted' || 
-    r.status === 'P.Way/S&T/TRD Review' || 
-    r.status === 'Verified' || 
-    r.status === 'Approval Pending' ||
-    r.status === 'Pending' || 
-    r.status === 'Review' || 
-    r.status === 'Revision' ||
-    r.status === 'Revision Required'
-  ).length;
+  // Dynamic Badges from store (canonical lifecycle counts)
+  const pendingRequestsCount = state.requests.filter(r => isPendingApproval(r)).length;
+  const planningCount = state.requests.filter(r => isPlanningEligible(r)).length;
+  const executionCount = state.requests.filter(r => isExecutionEligible(r)).length;
   const activeConflictsCount = state.requests.filter(r => r.conflict && !r.conflict.isResolved).length + state.liveConflicts.length;
   const unreadMessagesCount = (state.conversations || []).reduce((acc, c) => acc + (c.unreadCount || 0), 0);
 
@@ -60,11 +53,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
       badge: state.liveData.liveTrains.length > 0 ? state.liveData.liveTrains.length : undefined,
     },
     {
-      id: 'twin',
-      label: 'Digital Twin',
-      icon: Layers,
-    },
-    {
       id: 'requests',
       label: 'Requirements',
       icon: Inbox,
@@ -81,6 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
       id: 'planning',
       label: 'Planning',
       icon: Calendar,
+      badge: planningCount > 0 ? planningCount : undefined,
     },
     {
       id: 'conflict',
@@ -93,6 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
       id: 'execution',
       label: 'Execution',
       icon: PlayCircle,
+      badge: executionCount > 0 ? executionCount : undefined,
     },
     {
       id: 'communication',
@@ -113,8 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
   const userPerms = state.currentUser.permissions || ['overview'];
   const hasPermission = (id: SamnvayPage) => 
     userPerms.includes('all') || 
-    userPerms.includes(id) || 
-    (id === 'twin' && (userPerms.includes('live-trains') || userPerms.includes('overview') || userPerms.includes('planning')));
+    userPerms.includes(id);
   const navItems = allNavItems.filter(item => hasPermission(item.id));
 
   return (

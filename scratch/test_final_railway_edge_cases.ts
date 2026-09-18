@@ -16,10 +16,10 @@ try {
     }
   }
 } catch (e) {
-  process.env.RAILRADAR_API_KEY = 'rg_aaf1ca99a56f466b87f95096e1325312';
+  process.env.RAILRADAR_API_KEY = 'rg_00718a6c42d54792b559b74eab4f3b0d';
 }
 if (!process.env.RAILRADAR_API_KEY) {
-  process.env.RAILRADAR_API_KEY = 'rg_aaf1ca99a56f466b87f95096e1325312';
+  process.env.RAILRADAR_API_KEY = 'rg_00718a6c42d54792b559b74eab4f3b0d';
 }
 
 import * as React from 'react';

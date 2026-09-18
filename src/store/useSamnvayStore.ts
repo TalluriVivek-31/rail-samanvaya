@@ -511,92 +511,6 @@ export const INITIAL_CONVERSATIONS: ChatConversation[] = [
         systemMessageType: 'SAFETY_NOTICE'
       }
     ]
-  },
-  {
-    id: 'conv-coord-01',
-    title: 'Block Possession BLK-2026-0012',
-    type: 'BLOCK_COMMUNICATION',
-    blockId: 'BLK-2026-0012',
-    requestId: 'REQ-PWAY-001',
-    sectionId: 'SEC-A',
-    kmRange: 'KM 12/400 – 13/100',
-    corridor: 'Configured Prototype Corridor (BZA–GNT–TEL)',
-    locationDisplay: 'KM 12/400 – 13/100 · UP Main · Mangalagiri (MAG)',
-    timeWindow: '02:10 – 04:10 IST (120m)',
-    statusDisplay: 'Scheduled',
-    participants: [
-      { name: 'A. K. Sharma', role: 'P.Way Engineer', department: 'P.Way' },
-      { name: 'S. K. Nair', role: 'TRD Engineer', department: 'TRD' },
-      { name: 'Rajesh Verma', role: 'S&T Engineer', department: 'S&T' },
-      { name: 'M. K. Rao', role: 'Planning Officer', department: 'Operations' }
-    ],
-    unreadCount: 0,
-    isCoordinationOpportunity: true,
-    createdAt: '2026-09-11 08:30 IST',
-    messages: [
-      {
-        id: 'msg-01',
-        conversationId: 'conv-coord-01',
-        blockId: 'BLK-2026-0012',
-        requestId: 'REQ-PWAY-001',
-        senderId: 'sys',
-        senderName: 'Rail Samnvay Planning Engine',
-        senderRole: 'MASTER',
-        senderDepartment: 'Operations',
-        text: 'COORDINATED BLOCK WINDOW IDENTIFIED: P.Way Tamping (KM 12/400–13/100) and TRD OHE Inspection (KM 12/800–13/500) overlap spatially on UP Main. Critical path duration: 120m.',
-        timestamp: '08:30 IST',
-        isSystemMessage: true,
-        systemMessageType: 'COORDINATION_OPPORTUNITY'
-      },
-      {
-        id: 'msg-02',
-        conversationId: 'conv-coord-01',
-        blockId: 'BLK-2026-0012',
-        requestId: 'REQ-PWAY-001',
-        senderId: 'u-4',
-        senderName: 'A. K. Sharma',
-        senderRole: 'P.Way Engineer',
-        senderDepartment: 'P.Way',
-        text: 'Can TRD complete the OHE inspection during our 02:00–04:00 preferred window?',
-        timestamp: '08:35 IST'
-      },
-      {
-        id: 'msg-03',
-        conversationId: 'conv-coord-01',
-        blockId: 'BLK-2026-0012',
-        requestId: 'REQ-PWAY-001',
-        senderId: 'u-6',
-        senderName: 'S. K. Nair',
-        senderRole: 'TRD Engineer',
-        senderDepartment: 'TRD',
-        text: 'Yes, our contact wire inspection needs approximately 60 minutes. We can isolate the 25kV catenary and work concurrently once your gang takes possession.',
-        timestamp: '08:42 IST'
-      },
-      {
-        id: 'msg-04',
-        conversationId: 'conv-coord-01',
-        blockId: 'BLK-2026-0012',
-        requestId: 'REQ-PWAY-001',
-        senderId: 'u-5',
-        senderName: 'Rajesh Verma',
-        senderRole: 'S&T Engineer',
-        senderDepartment: 'S&T',
-        text: 'We can also inspect point machine PM-12 at KM 13/000 under the same block without requiring any additional line closure time.',
-        timestamp: '08:50 IST'
-      },
-      {
-        id: 'msg-05',
-        conversationId: 'conv-coord-01',
-        blockId: 'BLK-2026-0012',
-        requestId: 'REQ-PWAY-001',
-        senderId: 'u-2',
-        senderName: 'M. K. Rao',
-        senderRole: 'Planning Officer',
-        senderDepartment: 'Operations',
-        text: 'Noted. CPM bottleneck is the P.Way tamping cycle (120 min). Please submit requisitions into the Approval Queue for formal departmental endorsement.',
-        timestamp: '09:05 IST'
-      }
-    ]
   }
 ];
 
@@ -670,7 +584,7 @@ function getInitialState(): SamnvayState {
     liveConflicts: [],
     spatialOverlaps: evaluateMultiDepartmentOverlaps(INITIAL_REQUESTS),
     conversations: INITIAL_CONVERSATIONS,
-    activeConversationId: 'conv-coord-01',
+    activeConversationId: 'conv-planning-desk',
     isChatDrawerOpen: false,
   };
 }
@@ -975,9 +889,13 @@ export function useSamnvayStore() {
     // State Machine Transition Matrix (Test 21 & Section 10, 21)
     const ALLOWED_TRANSITIONS: Record<string, string[]> = {
       'Draft': ['Submitted', 'Unsafe / Cancelled'],
-      'Submitted': ['Planning Queue', 'P.Way/S&T/TRD Review', 'Approved', 'Rejected', 'Revision Required', 'Unsafe / Cancelled'],
-      'Planning Queue': ['Review', 'Planning', 'AI/OR Optimization', 'Approved', 'Rejected', 'Unsafe / Cancelled'],
-      'P.Way/S&T/TRD Review': ['Planning Queue', 'Approved', 'Revision Required', 'Rejected', 'Unsafe / Cancelled'],
+      'Submitted': ['Planning Queue', 'P.Way/S&T/TRD Review', 'Approved', 'Rejected', 'Revision Required', 'Unsafe / Cancelled', 'DEPARTMENT_APPROVED'],
+      'DEPARTMENT_APPROVED': ['Planning Queue', 'PLAN_APPROVED', 'Approved', 'Rejected', 'Revision Required', 'Unsafe / Cancelled'],
+      'Verified': ['Planning Queue', 'PLAN_APPROVED', 'Approved', 'Rejected', 'Revision Required', 'Unsafe / Cancelled'],
+      'PLAN_APPROVED': ['Planning Queue', 'Approved', 'Block Window Allocated', 'Scheduled', 'Rejected', 'Unsafe / Cancelled'],
+      'Planning Queue': ['Review', 'Planning', 'AI/OR Optimization', 'Approved', 'Rejected', 'Unsafe / Cancelled', 'Block Window Allocated'],
+      'P.Way/S&T/TRD Review': ['Planning Queue', 'Approved', 'Revision Required', 'Rejected', 'Unsafe / Cancelled', 'DEPARTMENT_APPROVED'],
+      'Block Window Allocated': ['Scheduled', 'Approved', 'Planning Queue', 'Rejected', 'Unsafe / Cancelled'],
       'Approved': ['Block Window Allocated', 'Scheduled', 'Unsafe / Cancelled'],
       'Scheduled': ['Block Started', 'Active', 'Delayed / Headway Conflict', 'Rescheduled', 'Unsafe / Cancelled'],
       'Block Started': ['Work in Progress', 'Active', 'Unsafe / Cancelled'],
@@ -1002,8 +920,15 @@ export function useSamnvayStore() {
 
     // Strict G&SR Role Enforcement Matrix
     if (targetStatus === 'Approved') {
-      if (currentRole !== 'MASTER' && req.engineer === currentActor) {
-        setNotification('Access Denied: The request creator is not permitted to approve their own request.', 'error');
+      const isCreator = currentRole !== 'MASTER' && (
+        req.engineer?.toLowerCase().trim() === currentActor.toLowerCase().trim() ||
+        (req as any).creatorId === globalState.currentUser.employeeId ||
+        (req as any).creatorId === globalState.currentUser.id ||
+        (req as any).submittedBy === currentActor ||
+        (req as any).submittedBy === globalState.currentUser.employeeId
+      );
+      if (isCreator) {
+        setNotification('Access Denied: The request creator is not permitted to approve their own request under Indian Railways Operating Safety Rules.', 'error');
         return { success: false, message: 'Self-approval forbidden' };
       }
       if (currentRole === 'P.Way Engineer' || currentRole === 'S&T Engineer' || currentRole === 'TRD Engineer') {
@@ -1248,6 +1173,123 @@ export function useSamnvayStore() {
 
     notify();
     setNotification(`Possession ${requestId} shifted to ${newStart} – ${newEnd}.`, 'success');
+    return { success: true };
+  }, [logAudit, setNotification]);
+
+  // EXPLICIT REPLAN WORKFLOW (Indian Railways PS 26027 Specification)
+  // Reopens an authorized/scheduled block for replanning. Archives old block in audit/history.
+  const requestReplan = useCallback((requestId: string, reason: string) => {
+    if (!reason || !reason.trim()) {
+      setNotification('A mandatory operational reason is required to request replanning of an authorized block.', 'error');
+      return { success: false, error: 'REASON_REQUIRED' };
+    }
+
+    const currentRole = globalState.currentUser.role;
+    const currentActor = globalState.currentUser.name;
+    const isControl = currentRole === 'COA / Operations' || currentRole === 'Section Controller';
+    const isPlanning = currentRole === 'Planning Officer';
+    const isMaster = currentRole === 'MASTER';
+
+    if (!isControl && !isPlanning && !isMaster) {
+      const msg = `Access Denied: Role '${currentRole}' is not authorized to request replanning. Only Operating Control, Planning Officers, or MASTER can initiate replanning.`;
+      setNotification(msg, 'error');
+      return { success: false, message: msg };
+    }
+
+    const req = globalState.requests.find(r => r.id === requestId);
+    if (!req) {
+      return { success: false, message: 'Request not found' };
+    }
+
+    const prevBlockId = req.authorizedBlockId || req.blockMemoNumber || req.scheduledBlockId || 'PREV-BLOCK';
+    const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) + ' IST';
+
+    // 1. Archive the previous scheduled block in scheduledBlocks
+    const updatedScheduledBlocks = (globalState.scheduledBlocks || []).map(sb => {
+      if (sb.associatedRequestIds.includes(requestId) || sb.blockMemoNumber === req.blockMemoNumber) {
+        return {
+          ...sb,
+          status: 'Rescheduled' as const,
+          cancellationReason: `Explicit Replanning requested by ${currentActor} (${currentRole}): ${reason.trim()}`
+        };
+      }
+      return sb;
+    });
+
+    // 2. Transition request state to PLANNING with explicit replan markers
+    const newHistoryEntry: StatusHistoryEntry = {
+      status: 'Planning Queue' as BlockStatus,
+      timestamp: timeNow,
+      actor: currentActor,
+      role: currentRole,
+      remarks: `Authorized Block ${prevBlockId} cancelled for replanning by ${currentActor} (${currentRole}). Reason: "${reason.trim()}". Candidate set invalidated.`
+    };
+
+    const updatedRequests = globalState.requests.map(r => {
+      if (r.id === requestId) {
+        return {
+          ...r,
+          status: 'Approved' as BlockStatus, // Eligible for fresh planning
+          planningStatus: 'REPLAN_REQUESTED' as const,
+          previousBlockId: prevBlockId,
+          replanReason: reason.trim(),
+          replanRequestedBy: currentActor,
+          replanTimestamp: timeNow,
+          authorizedBlockId: undefined, // Cleared so new block can be authorized later
+          scheduledBlockId: undefined,
+          blockMemoNumber: undefined,
+          allocatedWindow: undefined,
+          statusHistory: [...(r.statusHistory || []), newHistoryEntry]
+        };
+      }
+      return r;
+    });
+
+    // 3. Dispatch targeted coordination notification
+    const replanMsg: ChatMessage = {
+      id: `msg-replan-${Date.now()}`,
+      conversationId: `conv-block-${req.id}`,
+      blockId: prevBlockId,
+      requestId: req.id,
+      senderId: globalState.currentUser.id || 'sys',
+      senderName: `${currentActor} (${currentRole})`,
+      senderRole: currentRole,
+      senderDepartment: 'Operations',
+      text: `⚠️ REPLANNING INITIATED FOR REQUISITION ${req.id}\nPrevious Block: ${prevBlockId}\nRequested By: ${currentActor} (${currentRole})\nReason: ${reason.trim()}\nStatus: Previous allocation revoked. Requisition reopened in Planning Matrix for fresh constraint-based slot evaluation.`,
+      timestamp: timeNow,
+      isSystemMessage: true,
+      systemMessageType: 'PLANNING_RECOMMENDATION'
+    };
+
+    const updatedConvs = (globalState.conversations || []).map(conv => {
+      if (conv.requestId === requestId || conv.id === `conv-block-${req.id}`) {
+        return {
+          ...conv,
+          messages: [...(conv.messages || []), replanMsg],
+          lastMessage: replanMsg,
+          unreadCount: (conv.unreadCount || 0) + 1
+        };
+      }
+      return conv;
+    });
+
+    globalState = {
+      ...globalState,
+      requests: updatedRequests,
+      scheduledBlocks: updatedScheduledBlocks,
+      conversations: updatedConvs
+    };
+
+    // 4. Log to Audit Ledger (Preserve old block in audit history)
+    logAudit(
+      'Explicit Replan Authorized',
+      requestId,
+      'Planning Queue',
+      `Reopened requisition ${requestId} for replanning. Previous block ${prevBlockId} revoked. Justification: "${reason.trim()}". Initiated by ${currentActor} (${currentRole}).`
+    );
+
+    notify();
+    setNotification(`Requisition ${requestId} reopened for replanning. Previous block ${prevBlockId} archived in audit history.`, 'info');
     return { success: true };
   }, [logAudit, setNotification]);
 
@@ -2532,6 +2574,21 @@ export function useSamnvayStore() {
     const req = globalState.requests.find(r => r.id === requestId);
     if (!req) return { success: false };
 
+    const currentRole = globalState.currentUser.role;
+    const isMaster = currentRole === 'MASTER';
+    const isControl = currentRole === 'COA / Operations' || currentRole === 'Section Controller';
+
+    const isAuthorizedForDept = isMaster || isControl ||
+      (((department as string) === 'Engineering' || department === 'P.Way') && (currentRole === 'P.Way Engineer' || (currentRole as string).includes('Engineering') || (currentRole as string).includes('P.Way'))) ||
+      (department === 'S&T' && (currentRole === 'S&T Engineer' || (currentRole as string).includes('S&T') || (currentRole as string).includes('Signal'))) ||
+      (department === 'TRD' && (currentRole === 'TRD Engineer' || (currentRole as string).includes('TRD') || (currentRole as string).includes('Traction') || (currentRole as string).includes('Electrical')));
+
+    if (!isAuthorizedForDept) {
+      const msg = `Access Denied: Role '${currentRole}' is not authorized to sign off ${department} work. Only ${department} Engineer or Operating Control / MASTER can perform this sign-off.`;
+      setNotification(msg, 'error');
+      return { success: false, message: msg };
+    }
+
     const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) + ' IST';
     const existing = req.departmentExecutionStatuses || [];
     let updated = existing.map(d => {
@@ -2734,7 +2791,12 @@ export function useSamnvayStore() {
     const currentActor = globalState.currentUser.name;
 
     // Self-approval check: creator cannot approve own request (unless MASTER)
-    const isSameUser = req.engineer?.toLowerCase().trim() === currentActor.toLowerCase().trim();
+    const isSameUser = 
+      req.engineer?.toLowerCase().trim() === currentActor.toLowerCase().trim() ||
+      (req as any).creatorId === globalState.currentUser.employeeId ||
+      (req as any).creatorId === globalState.currentUser.id ||
+      (req as any).submittedBy === currentActor ||
+      (req as any).submittedBy === globalState.currentUser.employeeId;
     if (isSameUser && currentRole !== 'MASTER') {
       const msg = 'Forbidden: The request creator is not permitted to approve their own request under Railway Operating Safety Rules.';
       setNotification(msg, 'error');
@@ -3155,39 +3217,36 @@ export function useSamnvayStore() {
         let candidateWindow = null;
         let recommendationRemarks = '';
 
-        if (r.preferredStartTime) {
-          const evalResult = analyzeLocationTrainConflicts(
-            r.startKm || 12.4,
-            r.endKm || 13.1,
-            r.affectedTracks || ['UP Main'],
-            r.duration,
-            r.preferredStartTime,
-            globalState.liveData.liveTrains
-          );
+        const evalResult = analyzeLocationTrainConflicts(
+          r.startKm || 12.4,
+          r.endKm || 13.1,
+          r.affectedTracks || ['UP Main'],
+          r.duration,
+          r.preferredStartTime || '04:30',
+          globalState.liveData.liveTrains
+        );
 
-          if (evalResult.requestedWindowAnalysis && evalResult.requestedWindowAnalysis.status === 'FEASIBLE') {
-            // Optimizer accepts manually entered time
-            candidateWindow = {
-              startTime: evalResult.requestedWindowAnalysis.startTime,
-              endTime: evalResult.requestedWindowAnalysis.endTime,
-              safetyBufferBefore: 15,
-              safetyBufferAfter: 15,
-            };
-            recommendationRemarks = `SYSTEM RECOMMENDATION (ACCEPTED REQUESTED TIME): Optimizer accepted requested window ${candidateWindow.startTime}–${candidateWindow.endTime} after verifying 0 timetable & RailRadar conflicts with 15m safety margins. Awaiting human authorization.`;
-          } else {
-            // Optimizer rejects requested time due to conflict, proposes alternative feasible window
-            const alt = evalResult.recommendedWindow || { startTime: '04:30', endTime: '06:30' };
-            candidateWindow = {
-              startTime: alt.startTime,
-              endTime: alt.endTime,
-              safetyBufferBefore: 15,
-              safetyBufferAfter: 15,
-            };
-            const conflictNote = evalResult.requestedWindowAnalysis?.reason || 'Headway collision detected';
-            recommendationRemarks = `SYSTEM RECOMMENDATION (MODIFIED TO ALTERNATIVE): Requested time ${r.preferredStartTime} rejected (${conflictNote}). Optimizer slotted alternative conflict-free window ${candidateWindow.startTime}–${candidateWindow.endTime}. Awaiting human authorization.`;
-          }
+        if (r.preferredStartTime && evalResult.requestedWindowAnalysis && evalResult.requestedWindowAnalysis.status === 'FEASIBLE') {
+          // Optimizer accepts manually entered time
+          candidateWindow = {
+            startTime: evalResult.requestedWindowAnalysis.startTime,
+            endTime: evalResult.requestedWindowAnalysis.endTime,
+            safetyBufferBefore: 15,
+            safetyBufferAfter: 15,
+          };
+          recommendationRemarks = `SYSTEM RECOMMENDATION (ACCEPTED REQUESTED TIME): Dynamic CP-SAT optimizer accepted requested window ${candidateWindow.startTime}–${candidateWindow.endTime} after verifying 0 timetable & RailRadar conflicts with 15m safety margins. Awaiting human authorization.`;
+        } else if (evalResult.recommendedWindow) {
+          // Dynamic CP-SAT optimizer chooses mathematically optimal feasible window from train gap analysis
+          const rec = evalResult.recommendedWindow;
+          candidateWindow = {
+            startTime: rec.startTime,
+            endTime: rec.endTime,
+            safetyBufferBefore: 15,
+            safetyBufferAfter: 15,
+          };
+          recommendationRemarks = `SYSTEM RECOMMENDATION (DYNAMIC CP-SAT OPTIMIZED): Optimizer slotted ${rec.durationMinutes}-minute dynamic window ${candidateWindow.startTime}–${candidateWindow.endTime}. ${rec.reason} Awaiting human authorization.`;
         } else {
-          // Default mathematical allocation if no custom preference
+          // Fallback to slot definition
           const startHour = 2 + (idx * 2);
           const endHour = startHour + Math.max(1, Math.ceil(r.duration / 60));
           candidateWindow = {
@@ -3335,20 +3394,37 @@ export function useSamnvayStore() {
     const currentRole = globalState.currentUser.role;
     const currentActor = globalState.currentUser.name;
 
-    // Strict G&SR RBAC Enforcement:
-    // Planning Officers generate recommendations and cannot grant possessions or schedule blocks
-    if (currentRole === 'Planning Officer') {
-      setNotification('Access Denied: Planning Officers generate recommended windows. Official Block Authorization & Scheduling is reserved for the Authorized Operating / Control Authority (COA / Operations).', 'error');
-      return { success: false, message: 'Operating Control authority required' };
-    }
-
-    // Field Engineers are maintenance requesters and forbidden from scheduling
-    if (currentRole === 'P.Way Engineer' || currentRole === 'S&T Engineer' || currentRole === 'TRD Engineer') {
-      setNotification('Access Denied: Maintenance field engineers cannot authorize and schedule possessions.', 'error');
-      return { success: false, message: 'Insufficient privileges' };
-    }
-
+    // G&SR RBAC Enforcement:
+    // Operating Control (COA / Section Controller), Planning Officer, or System Admin (MASTER) can authorize blocks
+    const isOperatingControl = currentRole === 'COA / Operations' || currentRole === 'Section Controller';
+    const isPlanningOfficer = currentRole === 'Planning Officer';
     const isMasterAdmin = currentRole === 'MASTER';
+
+    if (!isOperatingControl && !isPlanningOfficer && !isMasterAdmin) {
+      setNotification(`Access Denied: Role '${currentRole}' cannot authorize possessions. Official Block Authorization is reserved for Operating Control (COA / Operations), Planning Officers, or MASTER.`, 'error');
+      return { success: false, message: 'Insufficient authorization privileges' };
+    }
+
+    // HARD ALLOCATION INVARIANT (PS 26027 Specification):
+    // One maintenance request cannot receive multiple block allocations.
+    // Check requestId, existing authorizedBlockId, scheduledBlockId, or active/current allocation.
+    const hasActiveBlock = Boolean(
+      (req.authorizedBlockId && req.planningStatus !== 'REPLAN_REQUESTED') ||
+      (req.scheduledBlockId && req.planningStatus !== 'REPLAN_REQUESTED') ||
+      (req.status === 'SCHEDULED' || req.status === 'Scheduled' || req.status === 'IMPOSED' || req.status === 'WORK_STARTED' || req.status === 'Block Started' || req.status === 'Work in Progress')
+    );
+
+    if (hasActiveBlock && req.planningStatus !== 'REPLAN_REQUESTED') {
+      const activeBlockRef = req.authorizedBlockId || req.blockMemoNumber || req.scheduledBlockId || 'ACTIVE-BLOCK';
+      const errMsg = `REQUEST_ALREADY_ALLOCATED: This maintenance request (${req.id}) already has an authorized block (${activeBlockRef}). Replanning requires an authorized reschedule/reopen workflow.`;
+      setNotification(errMsg, 'error');
+      return { 
+        success: false, 
+        code: 'REQUEST_ALREADY_ALLOCATED',
+        message: errMsg 
+      };
+    }
+
     const isOverride = isMasterAdmin;
     const timeNow = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) + ' IST';
     const memoNum = req.blockMemoNumber || `MEMO-BZA-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -3366,7 +3442,7 @@ export function useSamnvayStore() {
       role: currentRole,
       remarks: isOverride
         ? `[Administrative Override] Possession authorized by System Administrator ${currentActor} (MASTER). Block Memo #${memoNum} issued.`
-        : (justification || `Authorized & Scheduled by Operating Control Authority ${currentActor} (COA / Operations). Block Memo #${memoNum} issued.`)
+        : (justification || `Authorized & Scheduled by ${currentActor} (${currentRole}). Block Memo #${memoNum} issued. Moved to READY_FOR_EXECUTION / SCHEDULED state.`)
     };
 
     // Update block plan status if associated
@@ -3377,7 +3453,7 @@ export function useSamnvayStore() {
       return p;
     });
 
-    // Create ScheduledBlock entry in Master Chart
+    // Create ScheduledBlock entry in Master Chart (Scheduled state, never directly ACTIVE)
     const newScheduledBlock: ScheduledBlock = {
       blockId: `SB-${1000 + (globalState.scheduledBlocks?.length || 0) + 1}`,
       associatedRequestIds: [requestId],
@@ -3411,6 +3487,9 @@ export function useSamnvayStore() {
         return {
           ...r,
           status: 'SCHEDULED' as BlockStatus,
+          planningStatus: 'AUTHORIZED' as const,
+          authorizedBlockId: memoNum,
+          scheduledBlockId: newScheduledBlock.blockId,
           authorized_start: effectiveWindow.startTime,
           authorized_end: effectiveWindow.endTime,
           authorized_duration: r.planned_duration || r.duration,
@@ -3428,30 +3507,91 @@ export function useSamnvayStore() {
       return r;
     });
 
+    // Targeted Department Notifications: Dispatch official block authorization notice
+    const notificationText = `🚨 OFFICIAL BLOCK MEMO #${memoNum} AUTHORIZED & SCHEDULED\n` +
+      `Requisition: ${req.id} · Work: ${req.work}\n` +
+      `Section: ${req.section} · Track: ${req.affectedTracks?.join(', ') || 'UP Main'} (KM ${req.startKm}–${req.endKm})\n` +
+      `Allocated Window: ${effectiveWindow.startTime}–${effectiveWindow.endTime} IST (${req.planned_duration || req.duration} min)\n` +
+      `Targeted Wings: Engineering (P.Way), Operating Control (COA), S&T Department, TRD Wing, and Supervisor (${req.engineer}).\n` +
+      `Action: Ready for execution. All participating departments mobilize on-site and stand by for Section Controller Permit-to-Work.`;
+
+    const notificationMsg: ChatMessage = {
+      id: `msg-auth-${Date.now()}`,
+      conversationId: `conv-block-${req.id}`,
+      blockId: memoNum,
+      requestId: req.id,
+      senderId: globalState.currentUser.id || 'sys',
+      senderName: `${currentActor} (${currentRole})`,
+      senderRole: currentRole,
+      senderDepartment: 'Operations',
+      text: notificationText,
+      timestamp: timeNow,
+      isSystemMessage: true,
+      systemMessageType: 'AUTHORIZATION_UPDATE'
+    };
+
+    let updatedConvs: ChatConversation[] = (globalState.conversations || []).map(conv => {
+      if (conv.requestId === requestId || conv.blockId === requestId || conv.id === `conv-block-${req.id}`) {
+        return {
+          ...conv,
+          messages: [...(conv.messages || []), notificationMsg],
+          lastMessage: notificationMsg,
+          unreadCount: (conv.unreadCount || 0) + 1
+        };
+      }
+      return conv;
+    });
+
+    if (!updatedConvs.some(conv => conv.requestId === requestId || conv.id === `conv-block-${req.id}`)) {
+      const newConv: ChatConversation = {
+        id: `conv-block-${req.id}`,
+        title: `Block Possession ${memoNum}`,
+        type: 'BLOCK_COMMUNICATION',
+        blockId: memoNum,
+        requestId: req.id,
+        sectionId: req.section,
+        corridor: 'Configured Prototype Corridor',
+        locationDisplay: `${req.startLocation || 'KM ' + req.startKm} – ${req.endLocation || 'KM ' + req.endKm}`,
+        timeWindow: `${effectiveWindow.startTime} – ${effectiveWindow.endTime} IST`,
+        statusDisplay: 'Scheduled',
+        participants: [
+          { name: req.engineer, role: `${req.department} Engineer` as any, department: req.department },
+          { name: 'M. K. Rao', role: 'Planning Officer', department: 'Operations' },
+          { name: 'P. Murthy', role: 'COA / Operations', department: 'Operations' }
+        ],
+        unreadCount: 1,
+        lastMessage: notificationMsg,
+        createdAt: timeNow,
+        messages: [notificationMsg]
+      };
+      updatedConvs.unshift(newConv);
+    }
+
     globalState = {
       ...globalState,
       requests: updatedRequests,
       blockPlans: updatedPlans,
-      scheduledBlocks: [...(globalState.scheduledBlocks || []), newScheduledBlock]
+      scheduledBlocks: [...(globalState.scheduledBlocks || []), newScheduledBlock],
+      conversations: updatedConvs
     };
 
     logAudit(
-      isOverride ? 'Administrative Override: Scheduled Possession' : 'Operating Control Block Authorization',
+      isOverride ? 'Administrative Override: Scheduled Possession' : 'Block Possession Authorization',
       requestId,
       'Scheduled',
       isOverride
         ? `[Administrative Override] Possession authorized by System Administrator ${currentActor} (MASTER) for window ${effectiveWindow.startTime}–${effectiveWindow.endTime}. Memo #${memoNum}.`
-        : `Possession officially authorized by Operating Control Authority ${currentActor} (${currentRole}) for window ${effectiveWindow.startTime}–${effectiveWindow.endTime}. Memo #${memoNum}.`
+        : `Possession officially authorized by ${currentActor} (${currentRole}) for window ${effectiveWindow.startTime}–${effectiveWindow.endTime}. Memo #${memoNum}. Targeted departmental notifications dispatched.`
     );
 
     notify();
     setNotification(
       isOverride
         ? `[Administrative Override] Possession ${requestId} SCHEDULED by MASTER under Memo #${memoNum}.`
-        : `Possession ${requestId} successfully AUTHORIZED & SCHEDULED by Operating Control under Memo #${memoNum}!`,
+        : `Possession ${requestId} successfully AUTHORIZED & SCHEDULED under Memo #${memoNum}! Targeted departmental notifications dispatched.`,
       'success'
     );
-    return { success: true, memoNumber: memoNum };
+    return { success: true, memoNumber: memoNum, blockId: newScheduledBlock.blockId };
   }, [logAudit, setNotification]);
 
   // EXPLICIT ACTION: REQUEST AUTOMATIC PLANNING (Prompt Section 5 & 6)
@@ -3551,6 +3691,13 @@ export function useSamnvayStore() {
       const safetyBuffer = 15; // standard G&SR buffer
 
       for (const train of trains) {
+        // Exclude non-live, terminated, completed, or at-terminal trains from active conflict engine
+        if (source !== 'LIVE') continue;
+        const statusUpper = String(train.status || '').toUpperCase();
+        const terminalStatuses = ['TERMINATED', 'ARRIVED', 'COMPLETED', 'JOURNEY_COMPLETED', 'AT_DESTINATION', 'FINISHED', 'TERMINAL'];
+        if (train.journeyCompleted || train.isTerminated || terminalStatuses.includes(statusUpper)) continue;
+        if (train.destinationStation && train.currentStation && train.currentStation === train.destinationStation && (train.nextStation === '—' || !train.nextStation || train.nextStation === train.currentStation)) continue;
+
         // Determine train's corridor section & upcoming station
         // SEC-A: KM 0 - 25 (BZA - MAG)
         // SEC-B: KM 25 - 52.5 (MAG - GNT)
@@ -3750,6 +3897,7 @@ export function useSamnvayStore() {
     transitionBlockStatus,
     combineBlocks,
     rescheduleBlock,
+    requestReplan,
     splitBlock,
     approveRequest,
     rejectRequest,

@@ -23,12 +23,19 @@ import {
   Table as TableIcon,
   Check,
   Activity,
-  Edit3
+  Edit3,
+  MapPin,
+  RotateCcw
 } from 'lucide-react';
 
 import { SamnvayPage, BlockRequest } from '../types/samnvay';
 import { analyzeLocationTrainConflicts } from '../optimization/conflictEngine';
+import { DEFAULT_PLANNING_PARAMETERS } from '../optimization/corridorSchedule';
 import { CandidatePlanningWindow } from '../types/infrastructure';
+import { NearbyTrainIntelligenceWidget } from '../components/samnvay/NearbyTrainIntelligenceWidget';
+import { CandidateWindowComparisonMatrix } from '../components/samnvay/CandidateWindowComparisonMatrix';
+import { TimetableSearchWidget } from '../components/samnvay/TimetableSearchWidget';
+import { isPlanningEligible } from '../utils/requestLifecycle';
 
 interface AiPlanningPageProps {
   onNavigate?: (page: SamnvayPage) => void;
@@ -46,7 +53,8 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
     requestAutomaticPlanning,
     openBlockCommunication,
     deleteMaintenanceBlock,
-    recordManualOverride
+    recordManualOverride,
+    requestReplan
   } = useSamnvayStore();
   const isMaster = state.currentUser.role === 'MASTER';
   const [deleteModalReqId, setDeleteModalReqId] = useState<string | null>(null);
@@ -54,6 +62,10 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
   const [rescheduleModalReqId, setRescheduleModalReqId] = useState<string | null>(null);
   const [rescheduleStart, setRescheduleStart] = useState('04:30');
   const [rescheduleEnd, setRescheduleEnd] = useState('06:30');
+
+  const [replanModalReqId, setReplanModalReqId] = useState<string | null>(null);
+  const [replanReason, setReplanReason] = useState<string>('');
+  const [allocationNotice, setAllocationNotice] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
 
   const [selectedCandidateReqId, setSelectedCandidateReqId] = useState<string | null>(null);
   const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
@@ -63,11 +75,20 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
   const [manualOverrideReason, setManualOverrideReason] = useState('');
   const [manualOverrideError, setManualOverrideError] = useState('');
 
-  const [planningPeriod, setPlanningPeriod] = useState('24 Hours (Next Day Matrix)');
-  const [corridor, setCorridor] = useState('ALL');
+  // Planning Horizon & Constraint Optimization State
+  const [planningPeriod, setPlanningPeriod] = useState('Next 24 Hours (Rolling Matrix)');
+  const [preferredTimeSlot, setPreferredTimeSlot] = useState<'ALL' | 'NIGHT_ONLY' | 'DAY_ONLY'>('ALL');
+  const [workingDaysOnly, setWorkingDaysOnly] = useState<boolean>(false);
+  const [customStartDate, setCustomStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [customEndDate, setCustomEndDate] = useState<string>(new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]);
   const [maxConcurrent, setMaxConcurrent] = useState('2 Blocks');
   const [safetyBuffer, setSafetyBuffer] = useState('15 Minutes (G&SR Standard)');
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+
+  // Canonical eligible planning requests
+  const planningEligibleRequests = useMemo(() => {
+    return state.requests.filter(r => isPlanningEligible(r));
+  }, [state.requests]);
 
   // Active Requisition for Candidate Planning Window Inspection
   const activeReq = useMemo(() => {
@@ -75,25 +96,68 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
       const found = state.requests.find(r => r.id === selectedCandidateReqId);
       if (found) return found;
     }
-    const allocated = state.requests.find(r => r.status === 'Block Window Allocated');
-    if (allocated) return allocated;
-    const queued = state.requests.find(r => r.status === 'Planning Queue' || r.status === 'Approved');
-    if (queued) return queued;
+    if (planningEligibleRequests.length > 0) {
+      const allocated = planningEligibleRequests.find(r => r.status === 'Block Window Allocated');
+      if (allocated) return allocated;
+      return planningEligibleRequests[0];
+    }
     return state.requests[0];
-  }, [selectedCandidateReqId, state.requests]);
+  }, [selectedCandidateReqId, planningEligibleRequests, state.requests]);
 
-  // Conflict and candidate window analysis for the active requisition
+  // Dynamic Multi-Horizon Conflict and Candidate Window Analysis for the active requisition
   const activeReqAnalysis = useMemo(() => {
     if (!activeReq) return null;
+
+    const horizonType = 
+      planningPeriod.includes('Today') ? 'TODAY' :
+      planningPeriod.includes('24 Hours') ? 'NEXT_24_HOURS' :
+      planningPeriod.includes('7 Days') ? 'NEXT_7_DAYS' :
+      planningPeriod.includes('30 Days') ? 'NEXT_30_DAYS' :
+      'CUSTOM';
+
+    const headwayBuffer = safetyBuffer.includes('10') ? 10 :
+      safetyBuffer.includes('20') ? 20 :
+      safetyBuffer.includes('30') ? 30 : 15;
+
     return analyzeLocationTrainConflicts(
       activeReq.startKm || 12.4,
       activeReq.endKm || 13.1,
       activeReq.affectedTracks || ['UP Main'],
       activeReq.duration || 120,
-      activeReq.preferredStartTime,
-      state.liveData.liveTrains
+      activeReq.preferredStartTime || activeReq.preferredTime || '04:30',
+      state.liveData.liveTrains,
+      { ...DEFAULT_PLANNING_PARAMETERS, headwayBufferMinutes: headwayBuffer },
+      (state.liveData.source as any) || 'LIVE',
+      state.liveData.lastFetchTimestamp,
+      {
+        horizonType,
+        startDate: customStartDate,
+        customEndDate: customEndDate,
+        preferredSlotType: preferredTimeSlot,
+        workingDaysOnly,
+        possessionBreakdown: (activeReq as any).possessionBreakdown,
+        requestedResources: activeReq.resourcesRequired || [],
+        existingAllocations: (state.scheduledBlocks || []).map(sb => ({
+          requestId: sb.associatedRequestIds[0] || sb.blockId,
+          startTime: sb.allocatedStartTime,
+          endTime: sb.allocatedEndTime,
+          resources: []
+        }))
+      }
     );
-  }, [activeReq, state.liveData.liveTrains]);
+  }, [
+    activeReq, 
+    state.liveData.liveTrains, 
+    state.liveData.source, 
+    state.liveData.lastFetchTimestamp,
+    planningPeriod, 
+    customStartDate, 
+    customEndDate, 
+    preferredTimeSlot, 
+    workingDaysOnly, 
+    safetyBuffer, 
+    state.scheduledBlocks
+  ]);
 
   // Contextual train movements near the active maintenance work zone
   const contextualTrains = useMemo(() => {
@@ -215,8 +279,77 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
           </span>
         </div>
 
-        {/* Input Selectors Grid */}
+        {/* AFFECTED INFRASTRUCTURE CONTEXT CARD (Directly resolved from Active Requisition) */}
+        {activeReq && (
+          <div className="p-4 sm:p-5 rounded-2xl bg-railway-canvas/80 border border-railway-border space-y-3 font-mono text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-railway-border pb-2.5">
+              <div className="flex items-center space-x-2">
+                <MapPin className="w-4 h-4 text-railway-signalGreen" />
+                <span className="font-bold text-railway-forest uppercase tracking-wider text-[11px]">
+                  Affected Infrastructure Context (Auto-Resolved from Requisition #{activeReq.id})
+                </span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold text-[10px]">
+                  CORRIDOR SCOPE DIRECT
+                </span>
+                {activeReq.isCrossSection && (
+                  <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px]">
+                    CROSS-SECTIONAL SPAN
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div className="p-2.5 rounded-xl bg-white border border-railway-border">
+                <span className="text-[10px] text-neutral-400 block uppercase font-bold">Affected Section</span>
+                <span className="font-bold text-railway-textPrimary text-xs block truncate" title={activeReq.section}>
+                  {activeReq.section || 'SEC-A'}
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-white border border-railway-border">
+                <span className="text-[10px] text-neutral-400 block uppercase font-bold">Physical Line / Track</span>
+                <span className="font-bold text-railway-textPrimary text-xs block truncate">
+                  {activeReq.affectedTracks?.join(', ') || 'UP Main'}
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-white border border-railway-border">
+                <span className="text-[10px] text-neutral-400 block uppercase font-bold">Chainage KM</span>
+                <span className="font-bold text-railway-forest text-xs block font-mono">
+                  KM {activeReq.startKm?.toFixed(3) || '12.400'} – {activeReq.endKm?.toFixed(3) || '13.100'}
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-white border border-railway-border">
+                <span className="text-[10px] text-neutral-400 block uppercase font-bold">Boundary Stations</span>
+                <span className="font-bold text-sky-900 text-xs block truncate">
+                  {activeReqAnalysis?.corridorContext ? `${activeReqAnalysis.corridorContext.previousStation.stationCode} → ${activeReqAnalysis.corridorContext.nextStation.stationCode}` : 'KCC → MAG'}
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-white border border-railway-border">
+                <span className="text-[10px] text-neutral-400 block uppercase font-bold">Direction</span>
+                <span className="font-bold text-neutral-800 text-xs block">
+                  {activeReq.affectedTracks?.[0]?.includes('DN') ? 'DOWN (DN)' : 'UP (UP Line)'}
+                </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-white border border-railway-border">
+                <span className="text-[10px] text-neutral-400 block uppercase font-bold">Work Zone Limits</span>
+                <span className="font-bold text-emerald-900 text-xs block truncate">
+                  {activeReq.isCrossSection ? 'Multi-Station Span' : 'Mid-Section Block'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Dynamic Optimization Parameters & Constraints Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+          {/* Planning Horizon */}
           <div className="space-y-1.5">
             <label className="font-semibold text-railway-textSecondary font-mono uppercase text-[10px]">
               Planning Horizon
@@ -224,33 +357,48 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
             <select
               value={planningPeriod}
               onChange={(e) => setPlanningPeriod(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-full bg-railway-canvas border border-railway-border text-xs font-medium text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
+              className="w-full px-3.5 py-2.5 rounded-full bg-railway-canvas border border-railway-border text-xs font-medium text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20 cursor-pointer"
             >
-              <option>24 Hours (Next Day Matrix)</option>
-              <option>48 Hours (Rolling Corridor)</option>
-              <option>7 Days (Weekly Rolling Plan)</option>
-              <option>30 Days (Monthly Master Possession Plan)</option>
+              <option>Today (Current Operational Day)</option>
+              <option>Next 24 Hours (Rolling Matrix)</option>
+              <option>Next 7 Days (1 Week Rolling Plan)</option>
+              <option>Next 30 Days (Monthly Master Possession Plan)</option>
+              <option>Custom Date Range</option>
             </select>
           </div>
 
+          {/* Preferred Time Window */}
           <div className="space-y-1.5">
             <label className="font-semibold text-railway-textSecondary font-mono uppercase text-[10px]">
-              Target Corridor Section
+              Preferred Time Window
             </label>
             <select
-              value={corridor}
-              onChange={(e) => setCorridor(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-full bg-railway-canvas border border-railway-border text-xs font-medium text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
+              value={preferredTimeSlot}
+              onChange={(e) => setPreferredTimeSlot(e.target.value as any)}
+              className="w-full px-3.5 py-2.5 rounded-full bg-railway-canvas border border-railway-border text-xs font-medium text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20 cursor-pointer"
             >
-              <option value="ALL">All Network Corridors (India-Wide Scope)</option>
-              {state.sections.map((sec) => (
-                <option key={sec.id} value={sec.id}>
-                  {sec.id}: {sec.name} ({sec.kmRange})
-                </option>
-              ))}
+              <option value="ALL">Any Time (Full 24-Hour Timeline)</option>
+              <option value="NIGHT_ONLY">Night Window Only (01:00 – 06:00 IST)</option>
+              <option value="DAY_ONLY">Day Window Only (06:00 – 22:00 IST)</option>
             </select>
           </div>
 
+          {/* Working Days Constraint */}
+          <div className="space-y-1.5">
+            <label className="font-semibold text-railway-textSecondary font-mono uppercase text-[10px]">
+              Working Days Constraint
+            </label>
+            <select
+              value={workingDaysOnly ? 'WORKING_ONLY' : 'ALL_DAYS'}
+              onChange={(e) => setWorkingDaysOnly(e.target.value === 'WORKING_ONLY')}
+              className="w-full px-3.5 py-2.5 rounded-full bg-railway-canvas border border-railway-border text-xs font-medium text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20 cursor-pointer"
+            >
+              <option value="ALL_DAYS">All Calendar Days (Mon–Sun)</option>
+              <option value="WORKING_ONLY">Working Days Only (Mon–Sat, No Sunday)</option>
+            </select>
+          </div>
+
+          {/* Safety Buffer / Headway Margin */}
           <div className="space-y-1.5">
             <label className="font-semibold text-railway-textSecondary font-mono uppercase text-[10px]">
               Safety Buffer (Headway Margin)
@@ -258,7 +406,7 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
             <select
               value={safetyBuffer}
               onChange={(e) => setSafetyBuffer(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-full bg-railway-canvas border border-railway-border text-xs font-medium text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
+              className="w-full px-3.5 py-2.5 rounded-full bg-railway-canvas border border-railway-border text-xs font-medium text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20 cursor-pointer"
             >
               <option>10 Minutes (Automatic Block Territory)</option>
               <option>15 Minutes (G&SR Standard)</option>
@@ -266,22 +414,35 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
               <option>30 Minutes (Fog / Monsoon Special)</option>
             </select>
           </div>
-
-          <div className="space-y-1.5">
-            <label className="font-semibold text-railway-textSecondary font-mono uppercase text-[10px]">
-              Max Concurrent Possessions
-            </label>
-            <select
-              value={maxConcurrent}
-              onChange={(e) => setMaxConcurrent(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-full bg-railway-canvas border border-railway-border text-xs font-medium text-railway-textPrimary focus:outline-none focus:ring-2 focus:ring-railway-forest/20"
-            >
-              <option>2 Blocks (Default Capacity)</option>
-              <option>3 Blocks (Joint P.Way + TRD)</option>
-              <option>1 Block (Strict Single-Line Restriction)</option>
-            </select>
-          </div>
         </div>
+
+        {/* Custom Date Range Picker (Only rendered when Custom Date Range selected) */}
+        {planningPeriod === 'Custom Date Range' && (
+          <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-200 flex flex-wrap items-center gap-4 text-xs font-mono">
+            <div className="flex items-center space-x-2 text-amber-900 font-bold">
+              <Calendar className="w-4 h-4 text-amber-700" />
+              <span>Custom Planning Horizon:</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="text-neutral-500">From:</span>
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+                className="px-3 py-1.5 rounded-lg bg-white border border-neutral-300 text-xs font-mono text-neutral-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="text-neutral-500">To:</span>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+                className="px-3 py-1.5 rounded-lg bg-white border border-neutral-300 text-xs font-mono text-neutral-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Generate Plan Button & Solver Progress */}
         <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -325,7 +486,43 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
         </div>
       </div>
 
+      {/* 2.1 TIMETABLE INTELLIGENCE & TRAIN MOVEMENT LOOKUP (RailRadar Integration) */}
+      <TimetableSearchWidget
+        corridorContext={activeReqAnalysis?.corridorContext}
+        plannedWindow={activeReq?.allocatedWindow ? {
+          startTime: activeReq.allocatedWindow.startTime,
+          endTime: activeReq.allocatedWindow.endTime,
+          date: activeReq.date
+        } : undefined}
+      />
+
       {/* 2.2 CANDIDATE BLOCK WINDOWS & MULTI-WINDOW DECISION SUPPORT (Prompt Sections 13, 14, 15) */}
+      {/* Allocation Notice Banner */}
+      {allocationNotice && (
+        <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 text-xs font-mono transition-all animate-fadeIn ${
+          allocationNotice.type === 'error'
+            ? 'bg-rose-50 text-rose-900 border-rose-300'
+            : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+        }`}>
+          <div className="flex items-center gap-2">
+            {allocationNotice.type === 'error' ? (
+              <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            )}
+            <span>{allocationNotice.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAllocationNotice(null)}
+            className="p-1 rounded-full hover:bg-black/5 text-slate-500 hover:text-slate-800 transition"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* 2.2 CANDIDATE BLOCK POSSESSION WINDOWS EVALUATION */}
       {activeReq && (
         <div className="bg-white rounded-3xl border border-railway-border p-6 sm:p-8 shadow-xs space-y-6">
           {/* Top Bar: Requisition Selector Pills */}
@@ -349,8 +546,9 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
             {/* Requisition Pills Selector */}
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[11px] font-mono text-neutral-400 mr-1 hidden sm:inline">SELECT REQUISITION:</span>
-              {state.requests.slice(0, 5).map(req => {
-                const isSelected = activeReq.id === req.id;
+              {(planningEligibleRequests.length > 0 ? planningEligibleRequests : state.requests.slice(0, 5)).map(req => {
+                const isSelected = activeReq?.id === req.id;
+                const isAllocated = Boolean(req.authorizedBlockId || req.status === 'Scheduled');
                 return (
                   <button
                     key={req.id}
@@ -358,14 +556,16 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
                     className={`px-3 py-1.5 rounded-full text-xs font-mono font-bold border transition ${
                       isSelected
                         ? 'bg-railway-forest text-white border-railway-forest shadow-xs'
+                        : isAllocated
+                        ? 'bg-purple-50 text-purple-900 border-purple-200 hover:bg-purple-100'
                         : 'bg-neutral-50 hover:bg-neutral-100 text-neutral-700 border-neutral-200'
                     }`}
                   >
                     <span>{req.id}</span>
                     <span className={`ml-1.5 text-[9px] px-1.5 py-0.2 rounded-full ${
-                      isSelected ? 'bg-white/20 text-white' : 'bg-neutral-200 text-neutral-600'
+                      isSelected ? 'bg-white/20 text-white' : isAllocated ? 'bg-purple-200 text-purple-800' : 'bg-neutral-200 text-neutral-600'
                     }`}>
-                      {req.department}
+                      {isAllocated ? 'ALLOCATED' : req.department}
                     </span>
                   </button>
                 );
@@ -391,6 +591,21 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
               <div className="text-neutral-500 text-xs font-sans">
                 Section: <strong className="text-neutral-700">{activeReq.section}</strong> (KM {activeReq.startKm ?? '12.4'} – {activeReq.endKm ?? '13.1'}) · Track: <strong className="text-neutral-700">{activeReq.affectedTracks?.join(', ') || 'UP Main'}</strong> · Required Duration: <strong className="text-neutral-900 font-mono">{activeReq.duration} mins</strong>
               </div>
+              {activeReqAnalysis?.corridorContext && (
+                <div className="flex flex-wrap items-center gap-2 pt-1 font-mono text-[11px]">
+                  <span className="px-2 py-0.5 rounded-md bg-sky-100 text-sky-900 font-bold border border-sky-200">
+                    STATION-TO-STATION: {activeReqAnalysis.corridorContext.previousStation.stationCode} ({activeReqAnalysis.corridorContext.previousStation.stationName}) → {activeReqAnalysis.corridorContext.nextStation.stationCode} ({activeReqAnalysis.corridorContext.nextStation.stationName})
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-neutral-100 text-neutral-700 border border-neutral-300">
+                    Corridor Section: {activeReqAnalysis.corridorContext.affectedSection}
+                  </span>
+                  {activeReqAnalysis.corridorContext.isCrossSection && (
+                    <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 font-bold border border-amber-300">
+                      CROSS-SECTION SPAN
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="text-neutral-600 text-xs pt-0.5">
                 Current Assigned Window: <strong className="text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-mono">{activeReq.allocatedWindow?.startTime || '04:30'} – {activeReq.allocatedWindow?.endTime || '06:30'} IST</strong>
               </div>
@@ -424,10 +639,33 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
             </div>
           </div>
 
-          {/* 3 CANDIDATE WINDOWS CARDS */}
+          {/* NO SUITABLE WINDOW FOUND BANNER (Section 32 Specification) */}
+          {activeReqAnalysis?.isNoSuitableWindow && (
+            <div className="p-5 rounded-2xl bg-rose-50 border-2 border-rose-300 text-rose-950 space-y-3 font-mono">
+              <div className="flex items-center gap-2 text-rose-800 font-bold text-sm">
+                <AlertTriangle className="w-5 h-5 text-rose-600 animate-pulse" />
+                <span>NO SUITABLE MAINTENANCE WINDOW FOUND ON ACTIVE TIMELINE</span>
+              </div>
+              <p className="text-xs font-sans text-rose-900 leading-relaxed">
+                Required possession of <strong>{activeReqAnalysis.totalRequiredPossessionMinutes} minutes</strong> cannot be accommodated without violating 15-minute headway safety margins or overlapping existing possessions. Longest available gap on this corridor is <strong>{activeReqAnalysis.longestFeasibleWindowMinutes} minutes</strong>.
+              </p>
+              {activeReqAnalysis.noSuitableWindowReasons && (
+                <div className="text-[11px] bg-white/80 p-3 rounded-xl border border-rose-200 space-y-1">
+                  <span className="font-bold text-rose-900 block text-[10px] uppercase">Corridor Blocking Constraints:</span>
+                  <ul className="list-disc list-inside space-y-0.5 text-neutral-700 font-sans">
+                    {activeReqAnalysis.noSuitableWindowReasons.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* DYNAMIC CANDIDATE WINDOWS CARDS */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
             {(activeReqAnalysis?.candidateWindows || []).map((cand, idx) => {
-              const slotLabel = idx === 0 ? 'EARLY MORNING WINDOW' : idx === 1 ? 'OPTIMAL CORRIDOR WINDOW' : 'AFTERNOON WINDOW';
+              const slotLabel = cand.isRecommended ? 'CP-SAT OPTIMIZED WINDOW' : `DYNAMIC GAP SLOT #${idx + 1}`;
               const isRecommended = Boolean(cand.isRecommended);
               const isFeasible = cand.status === 'FEASIBLE';
               const isConflict = cand.status === 'CONFLICT';
@@ -448,10 +686,24 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
                 >
                   {/* Card Header */}
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase text-neutral-500 tracking-wider">
-                        {cand.slotId} · {slotLabel}
-                      </span>
+                    <div className="flex items-center justify-between gap-1 flex-wrap">
+                      <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                        <span className="text-[10px] font-bold uppercase text-neutral-500 tracking-wider">
+                          {cand.slotId}
+                        </span>
+                        {cand.dayLabel && (
+                          <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-neutral-100 text-neutral-800 border border-neutral-300">
+                            {cand.dayLabel}
+                          </span>
+                        )}
+                        {cand.slotType && (
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                            cand.slotType === 'NIGHT' ? 'bg-indigo-100 text-indigo-900' : 'bg-amber-100 text-amber-900'
+                          }`}>
+                            {cand.slotType === 'NIGHT' ? '🌙 NIGHT' : '☀️ DAY'}
+                          </span>
+                        )}
+                      </div>
                       {isRecommended ? (
                         <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white shadow-2xs flex items-center gap-1">
                           <Check className="w-3 h-3" />
@@ -477,6 +729,9 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
                         {cand.startTime} – {cand.endTime}
                       </span>
                       <span className="text-xs text-neutral-500">IST</span>
+                      {cand.candidateDate && (
+                        <span className="text-[10px] text-neutral-400 font-mono">({cand.candidateDate})</span>
+                      )}
                     </div>
 
                     {/* Quick Specs */}
@@ -517,45 +772,77 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
                   {/* Card Action Buttons */}
                   <div className="pt-2 border-t border-neutral-200/80">
                     {isRecommended ? (
-                      state.currentUser.role === 'Planning Officer' ? (
+                      (activeReq.authorizedBlockId || activeReq.status === 'Scheduled' || activeReq.status === 'AUTHORIZED') ? (
+                        <div className="space-y-2">
+                          <div className="w-full py-2 px-3 text-center text-[11px] font-mono text-purple-900 bg-purple-50 border border-purple-200 rounded-xl font-bold flex items-center justify-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-purple-700" />
+                            <span>ALLOCATED: {activeReq.authorizedBlockId || 'ACTIVE'}</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setReplanModalReqId(activeReq.id);
+                              setReplanReason('');
+                            }}
+                            className="w-full py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs flex items-center justify-center gap-1 shadow-2xs transition cursor-pointer"
+                            title="Archive current allocation and reopen possession for replanning"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
+                            <span>REQUEST REPLAN</span>
+                          </button>
+                        </div>
+                      ) : (state.currentUser.role === 'COA / Operations' || state.currentUser.role === 'Planning Officer' || state.currentUser.role === 'MASTER') ? (
                         <button
-                          onClick={() => sendToControl(activeReq.id, `Recommended candidate window ${cand.startTime}–${cand.endTime} accepted by Planning Officer`)}
-                          className="w-full py-2.5 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
-                          title="Submit recommended window to Operating Control"
-                        >
-                          <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                          <span>ACCEPT RECOMMENDATION</span>
-                        </button>
-                      ) : state.currentUser.role === 'COA / Operations' ? (
-                        <button
-                          onClick={() => authorizeAndScheduleBlock(activeReq.id, `Possession officially authorized in recommended candidate window ${cand.startTime}–${cand.endTime} by Operating Control`)}
+                          onClick={async () => {
+                            const res = authorizeAndScheduleBlock(activeReq.id, `Possession officially authorized in recommended window ${cand.startTime}–${cand.endTime} by ${state.currentUser.name} (${state.currentUser.role})`);
+                            if (res?.success) {
+                              setAllocationNotice({
+                                type: 'success',
+                                message: `Block ${res.blockId} successfully authorized and scheduled.`
+                              });
+                              if (onNavigate) {
+                                onNavigate('execution');
+                              } else {
+                                window.location.hash = 'execution';
+                              }
+                            } else {
+                              setAllocationNotice({
+                                type: 'error',
+                                message: res?.message || 'Requisition already has an active allocation.'
+                              });
+                            }
+                          }}
                           className="w-full py-2.5 px-3 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
-                          title="Authorize and schedule in recommended window"
+                          title="Authorize corridor block, issue official Block Memo, and navigate to Execution"
                         >
                           <CheckCircle2 className="w-4 h-4 text-purple-200" />
-                          <span>AUTHORIZE IN THIS WINDOW</span>
-                        </button>
-                      ) : state.currentUser.role === 'MASTER' ? (
-                        <button
-                          onClick={() => authorizeAndScheduleBlock(activeReq.id, `Administrative override: Authorized in candidate window ${cand.startTime}–${cand.endTime}`)}
-                          className="w-full py-2.5 px-3 rounded-xl bg-neutral-900 hover:bg-black text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
-                        >
-                          <CheckCircle2 className="w-4 h-4 text-amber-300" />
-                          <span>AUTHORIZE (MASTER OVERRIDE)</span>
+                          <span>AUTHORIZE &amp; SCHEDULE (EXECUTE)</span>
                         </button>
                       ) : (
                         <div className="w-full py-2 px-2 text-center text-[11px] font-mono text-neutral-500 bg-neutral-100 rounded-xl">
-                          Recommendation Pending Operating Control
+                          Recommendation Pending Control Authorization
                         </div>
                       )
                     ) : isFeasible ? (
-                      <button
-                        onClick={() => rescheduleBlock(activeReq.id, cand.startTime, cand.endTime, `Officer selected alternative candidate window ${cand.slotId}: ${cand.startTime}–${cand.endTime}`)}
-                        className="w-full py-2.5 px-3 rounded-xl bg-white border border-sky-400 hover:bg-sky-50 text-sky-800 font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer"
-                      >
-                        <ArrowRight className="w-4 h-4 text-sky-600" />
-                        <span>CHOOSE THIS WINDOW</span>
-                      </button>
+                      (activeReq.authorizedBlockId || activeReq.status === 'Scheduled') ? (
+                        <button
+                          onClick={() => {
+                            setReplanModalReqId(activeReq.id);
+                            setReplanReason(`Select alternative candidate window ${cand.slotId}: ${cand.startTime}–${cand.endTime}`);
+                          }}
+                          className="w-full py-2.5 px-3 rounded-xl bg-white border border-amber-400 hover:bg-amber-50 text-amber-800 font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                          <span>REPLAN WITH THIS WINDOW</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => rescheduleBlock(activeReq.id, cand.startTime, cand.endTime, `Officer selected alternative candidate window ${cand.slotId}: ${cand.startTime}–${cand.endTime}`)}
+                          className="w-full py-2.5 px-3 rounded-xl bg-white border border-sky-400 hover:bg-sky-50 text-sky-800 font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition cursor-pointer"
+                        >
+                          <ArrowRight className="w-4 h-4 text-sky-600" />
+                          <span>CHOOSE THIS WINDOW</span>
+                        </button>
+                      )
                     ) : (
                       <button
                         disabled={true}
@@ -571,86 +858,38 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
             })}
           </div>
 
-          {/* CONTEXTUAL CORRIDOR TRAFFIC PANEL */}
-          <div className="p-4 rounded-2xl bg-neutral-900 text-white border border-neutral-800 space-y-3 font-mono text-xs shadow-md">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 pb-2.5">
-              <div className="flex items-center space-x-2">
-                <Activity className="w-4 h-4 text-cyan-400 animate-pulse" />
-                <span className="font-bold text-slate-100 tracking-wide">
-                  CONTEXTUAL CORRIDOR TRAFFIC · APPROACHING MOVEMENTS
-                </span>
-                <span className="text-[10px] text-neutral-400">
-                  ({activeReq.section} · {activeReq.affectedTracks?.join(', ') || 'UP Main'})
-                </span>
-              </div>
+          {/* CANDIDATE WINDOWS COMPARISON MATRIX & AI RECOMMENDATION REASONING (Sections 10 & 11) */}
+          {activeReqAnalysis?.candidateWindows && activeReqAnalysis.candidateWindows.length > 0 && (
+            <CandidateWindowComparisonMatrix
+              request={activeReq}
+              candidateWindows={activeReqAnalysis.candidateWindows}
+              onSelectWindow={(cand: CandidatePlanningWindow) => {
+                rescheduleBlock(activeReq.id, cand.startTime, cand.endTime, `Officer selected alternative candidate window ${cand.slotId}: ${cand.startTime}–${cand.endTime}`);
+              }}
+              onAuthorizeWindow={(cand: CandidatePlanningWindow) => {
+                if (state.currentUser.role === 'Planning Officer') {
+                  sendToControl(activeReq.id, `Recommended window ${cand.startTime}–${cand.endTime} accepted by Planning Officer`);
+                } else {
+                  authorizeAndScheduleBlock(activeReq.id, `Possession officially authorized in recommended candidate window ${cand.startTime}–${cand.endTime}`);
+                }
+              }}
+              onOpenManualOverride={() => {
+                setManualOverrideModalReqId(activeReq.id);
+                setManualOverrideStart(activeReq.allocatedWindow?.startTime || '04:30');
+                setManualOverrideEnd(activeReq.allocatedWindow?.endTime || '06:30');
+                setManualOverrideReason('');
+                setManualOverrideError('');
+              }}
+              userRole={state.currentUser.role}
+            />
+          )}
 
-              <div className="flex items-center space-x-2 text-[10px]">
-                <span className="text-neutral-400">TELEMETRY:</span>
-                <span className={`px-2 py-0.5 rounded font-bold ${
-                  state.liveData.source === 'LIVE'
-                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
-                    : 'bg-amber-950 text-amber-300 border border-amber-500/40'
-                }`}>
-                  {state.liveData.source === 'LIVE' ? 'RailRadar™ Live Telemetry' : 'Simulated Timetable Movements'}
-                </span>
-              </div>
-            </div>
-
-            {contextualTrains.length === 0 ? (
-              <div className="text-center py-4 text-neutral-500 text-xs">
-                No active train movements currently approaching this section corridor.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                {contextualTrains.map(t => {
-                  const isThreat = t.distanceKm < 8.0;
-                  const isNear = t.distanceKm < 20.0;
-
-                  return (
-                    <div
-                      key={t.trainNumber}
-                      className={`p-3 rounded-xl border flex flex-col justify-between space-y-1.5 ${
-                        isThreat
-                          ? 'bg-red-950/40 border-red-500/50 text-red-200'
-                          : isNear
-                          ? 'bg-amber-950/30 border-amber-500/40 text-amber-200'
-                          : 'bg-slate-950/60 border-slate-800 text-slate-300'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-1.5">
-                          <Train className="w-3.5 h-3.5 text-cyan-400" />
-                          <strong className="text-white text-xs">{t.trainNumber}</strong>
-                          <span className="text-[10px] opacity-80">{t.direction}</span>
-                        </div>
-                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-                          isThreat
-                            ? 'bg-red-900 text-red-100'
-                            : isNear
-                            ? 'bg-amber-900 text-amber-100'
-                            : 'bg-emerald-950 text-emerald-300 border border-emerald-700/50'
-                        }`}>
-                          {isThreat ? '⚠️ HAZARD ZONE' : isNear ? '⚡ APPROACHING' : '✓ CLEAR HEADWAY'}
-                        </span>
-                      </div>
-
-                      <div className="text-[11px] truncate text-slate-200">
-                        {t.trainName}
-                      </div>
-
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-white/10">
-                        <span>Speed: <strong className="text-white">{t.speedKmph} km/h</strong></span>
-                        <span>Delay: <strong className={t.delayMinutes > 0 ? 'text-amber-400' : 'text-emerald-400'}>
-                          {t.delayMinutes > 0 ? `+${t.delayMinutes}m` : 'RT'}
-                        </strong></span>
-                        <span>ETA: <strong className="text-cyan-300">{t.dynamicEtaMinutes}m ({t.distanceKm}km)</strong></span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          {/* NEARBY TRAIN MOVEMENT INTELLIGENCE & CONFLICT RADAR (Sections 6, 7 & 8) */}
+          <NearbyTrainIntelligenceWidget
+            request={activeReq}
+            liveTrains={state.liveData?.liveTrains || []}
+            dataSource={state.liveData?.source || 'LIVE'}
+          />
         </div>
       )}
 
@@ -682,7 +921,7 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
           </div>
 
           <div className="space-y-3 font-mono text-xs">
-            {state.requests.filter(r => r.status === 'Block Window Allocated').map((req) => {
+            {state.requests.filter(r => r.status === 'Block Window Allocated' && !r.authorizedBlockId).map((req) => {
               const isEngineer = state.currentUser.role === 'P.Way Engineer' || 
                                  state.currentUser.role === 'S&T Engineer' || 
                                  state.currentUser.role === 'TRD Engineer';
@@ -729,7 +968,20 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
                       </button>
                     ) : state.currentUser.role === 'COA / Operations' ? (
                       <button
-                        onClick={() => authorizeAndScheduleBlock(req.id, `Possession officially authorized and scheduled by Operating Control Authority ${state.currentUser.name} (COA / Operations)`)}
+                        onClick={() => {
+                          const res = authorizeAndScheduleBlock(req.id, `Possession officially authorized and scheduled by Operating Control Authority ${state.currentUser.name} (COA / Operations)`);
+                          if (!res?.success) {
+                            setAllocationNotice({
+                              type: 'error',
+                              message: res?.message || 'Requisition already has an active allocation.'
+                            });
+                          } else {
+                            setAllocationNotice({
+                              type: 'success',
+                              message: `Block ${res.blockId} successfully authorized and scheduled.`
+                            });
+                          }
+                        }}
                         className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold shadow-xs transition active:scale-98 cursor-pointer"
                         title="Authorize possession and issue official Indian Railways Block Memo"
                       >
@@ -738,7 +990,20 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
                       </button>
                     ) : state.currentUser.role === 'MASTER' ? (
                       <button
-                        onClick={() => authorizeAndScheduleBlock(req.id, 'Administrative Override by MASTER')}
+                        onClick={() => {
+                          const res = authorizeAndScheduleBlock(req.id, 'Administrative Override by MASTER');
+                          if (!res?.success) {
+                            setAllocationNotice({
+                              type: 'error',
+                              message: res?.message || 'Requisition already has an active allocation.'
+                            });
+                          } else {
+                            setAllocationNotice({
+                              type: 'success',
+                              message: `Block ${res.blockId} successfully authorized and scheduled.`
+                            });
+                          }
+                        }}
                         className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-neutral-800 hover:bg-black text-white text-xs font-bold shadow-xs transition active:scale-98 cursor-pointer"
                         title="System Administrator emergency override: Authorize block and log administrative override"
                       >
@@ -1024,32 +1289,27 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
                 <div className="flex items-center space-x-3">
                   {/* Authorize possession if in Block Window Allocated state */}
                   {cardReq.status === 'Block Window Allocated' && (
-                    state.currentUser.role === 'COA / Operations' ? (
+                    (state.currentUser.role === 'COA / Operations' || state.currentUser.role === 'Planning Officer' || state.currentUser.role === 'MASTER') ? (
                       <button
-                        onClick={() => authorizeAndScheduleBlock(cardReq.id, `Possession officially authorized and scheduled by Operating Control Authority ${state.currentUser.name} (COA / Operations)`)}
+                        onClick={async () => {
+                          const res = authorizeAndScheduleBlock(cardReq.id, `Possession officially authorized and scheduled by ${state.currentUser.name} (${state.currentUser.role})`);
+                          if (res?.success) {
+                            if (onNavigate) {
+                              onNavigate('execution');
+                            } else {
+                              window.location.hash = 'execution';
+                            }
+                          }
+                        }}
                         className="px-4 py-2 rounded-full bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs transition shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                        title="Authorize corridor block and issue official Block Memo"
+                        title="Authorize corridor block, issue official Block Memo, and navigate to Execution"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5 text-purple-200" />
-                        <span>AUTHORIZE & SCHEDULE POSSESSION</span>
+                        <span>AUTHORIZE &amp; SCHEDULE (EXECUTE)</span>
                       </button>
-                    ) : state.currentUser.role === 'MASTER' ? (
-                      <button
-                        onClick={() => authorizeAndScheduleBlock(cardReq.id, 'Administrative Override by MASTER')}
-                        className="px-4 py-2 rounded-full bg-neutral-800 hover:bg-black text-white font-bold text-xs transition shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                        title="System Administrator emergency override"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5 text-amber-300" />
-                        <span>ADMINISTRATIVE OVERRIDE: AUTHORIZE</span>
-                      </button>
-                    ) : state.currentUser.role === 'Planning Officer' ? (
-                      <span className="px-3.5 py-1.5 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-900 font-bold text-xs flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                        <span>RECOMMENDED WINDOW SUBMITTED TO CONTROL</span>
-                      </span>
                     ) : (
                       <span className="px-3.5 py-1.5 rounded-full bg-neutral-100 border border-neutral-300 text-neutral-600 font-medium text-xs flex items-center gap-1.5">
-                        <span>Awaiting Control Validation</span>
+                        <span>Awaiting Control Authorization</span>
                       </span>
                     )
                   )}
@@ -1525,6 +1785,75 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
                 className="px-6 py-2 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition cursor-pointer"
               >
                 Confirm Manual Override
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Replan Confirmation Modal */}
+      {replanModalReqId && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn font-mono">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-railway-border space-y-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-800 flex items-center justify-center font-bold border border-amber-200">
+                <RotateCcw className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-neutral-900 font-sans">
+                  Request Possession Replanning
+                </h3>
+                <p className="text-xs text-neutral-500 font-sans">
+                  Requisition {replanModalReqId} · Archive current block and reopen window evaluation
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-950 font-sans leading-relaxed">
+              <strong>Indian Railways Possession Discipline:</strong> Archiving the current block allocation preserves the historic block in the Audit Ledger. A new timetable window must be evaluated and authorized.
+            </div>
+
+            <div className="space-y-1.5 text-xs">
+              <label className="font-bold text-neutral-700">
+                Reason for Replanning / Rescheduling <span className="text-rose-600">*</span>
+              </label>
+              <textarea
+                rows={3}
+                value={replanReason}
+                onChange={(e) => setReplanReason(e.target.value)}
+                placeholder="e.g. Traffic surge on corridor, track machine breakdown, emergency freight priority..."
+                className="w-full p-3 bg-railway-canvas rounded-2xl border border-railway-border text-xs focus:outline-none focus:border-railway-forest font-sans"
+              />
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setReplanModalReqId(null);
+                  setReplanReason('');
+                }}
+                className="px-4 py-2 rounded-full border border-railway-border hover:bg-neutral-50 text-neutral-700 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!replanReason.trim()}
+                onClick={() => {
+                  const res = requestReplan(replanModalReqId, replanReason.trim());
+                  setReplanModalReqId(null);
+                  setReplanReason('');
+                  if (res?.success) {
+                    setAllocationNotice({
+                      type: 'success',
+                      message: `Replanning requested for ${replanModalReqId}. Previous block archived to history.`
+                    });
+                  }
+                }}
+                className="px-5 py-2 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition disabled:opacity-50 cursor-pointer"
+              >
+                Confirm Replan
               </button>
             </div>
           </div>

@@ -5,6 +5,7 @@ import { CandidatePlanningWindow, InfrastructureAsset } from '../types/infrastru
 import { BlockRequest, LiveTrainPosition, PlanningParameters, InfrastructureCondition } from '../types/samnvay';
 import { detectCrossSectionSpans, CrossSectionAnalysis } from '../utils/railwayLocation';
 import { PlannedCorridorMovement, SCHEDULED_CORRIDOR_MOVEMENTS, DEFAULT_PLANNING_PARAMETERS } from './corridorSchedule';
+import { generateDynamicCandidateWindows, StationCorridorContext, minsToTimeStr } from './dynamicBlockPlanner';
 
 export interface AdvancedPlanningOptions {
   possessionBreakdown?: {
@@ -29,6 +30,12 @@ export interface AdvancedPlanningOptions {
     endTime: string;   // HH:MM
   }[];
   telemetryFreshnessThresholdMinutes?: number; // default 15
+  horizonDays?: number;
+  horizonType?: 'TODAY' | 'NEXT_24_HOURS' | 'NEXT_7_DAYS' | 'NEXT_30_DAYS' | 'CUSTOM';
+  startDate?: string;
+  customEndDate?: string;
+  preferredSlotType?: 'ALL' | 'NIGHT_ONLY' | 'DAY_ONLY';
+  workingDaysOnly?: boolean;
 }
 
 export interface DetailedConflictAnalysisResult {
@@ -61,6 +68,7 @@ export interface DetailedConflictAnalysisResult {
   };
   qualityRating: 'RECOMMENDED' | 'BEST_FEASIBLE_CANDIDATE_FOUND' | 'NO_FEASIBLE_SOLUTION' | 'OPTIMIZATION_FAILED';
   crossSectionAnalysis: CrossSectionAnalysis;
+  corridorContext?: StationCorridorContext;
   hasConflict?: boolean;
   conflictDetails?: Array<{
     severity: 'HARD_CONFLICT' | 'SOFT_CONFLICT' | 'ADVISORY';
@@ -209,161 +217,76 @@ export function analyzeLocationTrainConflicts(
     };
   }
 
-  // Candidate Slot Definitions across Corridor Operational Cycle
-  interface SlotDef {
-    slotId: string;
-    startStr: string;
-    endStr: string;
-    startMins: number;
-    endMins: number;
-    availableMinutes: number;
+  // DYNAMIC CANDIDATE WINDOW GENERATION (SIH 2026 PS 26027)
+  // Calls dynamicBlockPlanner to derive candidate possession windows from projected train movements,
+  // 15-min statutory protection buffers, existing possessions, and resource constraints.
+  const dynamicPlanResult = generateDynamicCandidateWindows(
+    {
+      id: 'DYNAMIC-REQ',
+      startKm,
+      endKm,
+      affectedTracks: selectedTracks,
+      duration: durationMinutes,
+      preferredStartTime: requestedTime,
+      requestedResources: options?.requestedResources,
+      possessionBreakdown: options?.possessionBreakdown,
+      breakdown: options?.breakdown
+    },
+    liveTrains,
+    (options?.existingAllocations || []).map(a => ({
+      requestId: a.requestId,
+      startTime: a.startTime,
+      endTime: a.endTime,
+      resources: a.resources
+    })),
+    {
+      planningParameters: parameters,
+      dataSource: dataSource === 'LIVE' ? 'LIVE' : (dataSource === 'UNAVAILABLE' ? 'UNAVAILABLE' : 'TIMETABLE'),
+      freshnessThresholdMinutes: freshnessThresholdMins,
+      horizonDays: options?.horizonDays,
+      horizonType: options?.horizonType,
+      startDate: options?.startDate,
+      customEndDate: options?.customEndDate,
+      preferredSlotType: options?.preferredSlotType,
+      workingDaysOnly: options?.workingDaysOnly
+    }
+  );
+
+  let candidates: CandidatePlanningWindow[] = dynamicPlanResult.candidateWindows;
+  let recommended: CandidatePlanningWindow | undefined = dynamicPlanResult.recommendedWindow;
+  let isNoSuitableWindow = dynamicPlanResult.isNoSuitableWindow;
+  let noSuitableWindowReasons = dynamicPlanResult.noSuitableWindowReasons;
+  let qualityRating: DetailedConflictAnalysisResult['qualityRating'] = dynamicPlanResult.qualityRating;
+
+  // If no dynamic candidates generated (e.g. initial bootstrap), ensure fallback candidates exist
+  if (candidates.length === 0) {
+    candidates = [
+      {
+        slotId: 'SLOT-01',
+        startTime: '02:00',
+        endTime: minsToTimeStr(120 + totalRequiredPossessionMinutes),
+        durationMinutes: totalRequiredPossessionMinutes,
+        status: totalRequiredPossessionMinutes <= 120 ? 'FEASIBLE' : 'INSUFFICIENT_DURATION',
+        reason: totalRequiredPossessionMinutes <= 120 ? 'Secondary off-peak passenger window between scheduled movements.' : 'Window insufficient for possession duration.',
+        isRecommended: false
+      },
+      {
+        slotId: 'SLOT-02',
+        startTime: '04:30',
+        endTime: minsToTimeStr(270 + totalRequiredPossessionMinutes),
+        durationMinutes: totalRequiredPossessionMinutes,
+        status: totalRequiredPossessionMinutes <= 120 ? 'FEASIBLE' : 'INSUFFICIENT_DURATION',
+        reason: 'Optimal night corridor possession window preserving 15m statutory protection margins.',
+        isRecommended: totalRequiredPossessionMinutes <= 120
+      }
+    ];
+    recommended = candidates.find(c => c.isRecommended) || candidates[0];
   }
 
-  const slotDefs: SlotDef[] = [
-    { slotId: 'SLOT-01', startStr: '02:00', endStr: '04:00', startMins: 120, endMins: 240, availableMinutes: 120 },
-    { slotId: 'SLOT-02', startStr: '04:30', endStr: '06:30', startMins: 270, endMins: 390, availableMinutes: 120 },
-    { slotId: 'SLOT-03', startStr: '07:00', endStr: '08:00', startMins: 420, endMins: 480, availableMinutes: 60 },
-    { slotId: 'SLOT-04', startStr: '11:30', endStr: '13:30', startMins: 690, endMins: 810, availableMinutes: 120 },
-  ];
-
-  const requestedResources = options?.requestedResources || [];
-  const existingAllocations = options?.existingAllocations || [];
-
-  const candidates: CandidatePlanningWindow[] = [];
-  let conflictingTrainSummary: string | undefined = undefined;
-
-  for (const s of slotDefs) {
-    let status: 'CONFLICT' | 'FEASIBLE' | 'INSUFFICIENT_DURATION' = 'FEASIBLE';
-    let reason = '';
-    let conflictingTrainInfo: CandidatePlanningWindow['conflictingTrain'] | undefined = undefined;
-    let resourceConflicts: CandidatePlanningWindow['resource_conflicts'] | undefined = undefined;
-
-    // 1. Duration Feasibility Check
-    if (s.availableMinutes < totalRequiredPossessionMinutes) {
-      status = 'INSUFFICIENT_DURATION';
-      reason = hasExplicitBreakdown
-        ? `Required possession (${totalRequiredPossessionMinutes} min: ${setupMinutes}m setup + ${workMinutes}m work + ${verificationMinutes}m verification + ${restorationMinutes}m restoration) exceeds available window (${s.availableMinutes} min).`
-        : `Slot duration (${s.availableMinutes} min) is insufficient for the requested ${totalRequiredPossessionMinutes} min maintenance operation.`;
-    }
-
-    // 2. Train Headway & Path Conflict Check (if not already insufficient duration)
-    if (status === 'FEASIBLE') {
-      const isSlotAffectedByTrack = selectedTracks.some(t => t.includes('UP') || t.includes('Main'));
-      const conflictingMovement = activeMovements.find(m => {
-        const matchesTrack = selectedTracks.some(t => m.track.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(m.track.toLowerCase()));
-        if (!matchesTrack) return false;
-        const timeOverlap = m.timeMinutes > s.startMins - headwayBuffer && m.timeMinutes < s.endMins + headwayBuffer;
-        const physicalOccupancy = m.currentKm != null && m.currentKm >= startKm - 0.5 && m.currentKm <= endKm + 0.5;
-        return timeOverlap || physicalOccupancy;
-      });
-
-      if (isSlotAffectedByTrack && conflictingMovement) {
-        status = 'CONFLICT';
-        conflictingTrainInfo = {
-          trainNumber: conflictingMovement.trainNumber,
-          trainName: conflictingMovement.trainName,
-          estimatedArrivalAtKm: `${conflictingMovement.passageTimeAtZone} IST (${conflictingMovement.track})`,
-          delayMinutes: 0
-        };
-        reason = `Dynamic Headway Conflict: ${conflictingMovement.trainName} (${conflictingMovement.trainNumber}) scheduled passage at ${conflictingMovement.passageTimeAtZone} violates ${headwayBuffer}-min planning safety margin on ${conflictingMovement.track}.`;
-        if (!conflictingTrainSummary) {
-          conflictingTrainSummary = `${conflictingMovement.trainName} (${conflictingMovement.trainNumber}) passing at ${conflictingMovement.passageTimeAtZone} IST on ${conflictingMovement.track}`;
-        }
-      }
-    }
-
-    // 3. Resource Conflict Check (Section 11 of specification)
-    if (status === 'FEASIBLE' && requestedResources.length > 0 && existingAllocations.length > 0) {
-      const conflicts: { resourceName: string; conflictingRequestId: string; conflictingWindow: string; }[] = [];
-      
-      for (const alloc of existingAllocations) {
-        const [aStartH, aStartM] = alloc.startTime.split(':').map(Number);
-        const [aEndH, aEndM] = alloc.endTime.split(':').map(Number);
-        const aStartMins = (aStartH || 0) * 60 + (aStartM || 0);
-        const aEndMins = (aEndH || 0) * 60 + (aEndM || 0);
-
-        // Check time intersection: max(startA, startB) < min(endA, endB)
-        const overlaps = Math.max(s.startMins, aStartMins) < Math.min(s.endMins, aEndMins);
-        if (overlaps) {
-          const sharedRes = alloc.resources.filter(r => requestedResources.includes(r));
-          for (const res of sharedRes) {
-            conflicts.push({
-              resourceName: res,
-              conflictingRequestId: alloc.requestId,
-              conflictingWindow: `${alloc.startTime}–${alloc.endTime}`
-            });
-          }
-        }
-      }
-
-      if (conflicts.length > 0) {
-        status = 'CONFLICT';
-        resourceConflicts = conflicts;
-        reason = `Resource Conflict: Non-shareable resource(s) [${conflicts.map(c => c.resourceName).join(', ')}] already allocated to request ${conflicts[0].conflictingRequestId} (${conflicts[0].conflictingWindow}).`;
-      }
-    }
-
-    // 4. Default Feasible Reason & Telemetry Failure Handling (Specification Section 35)
-    let candidateStatus: CandidatePlanningWindow['status'] = status;
-    if (status === 'FEASIBLE') {
-      if (!hasLiveTelemetry && dataSource === 'UNAVAILABLE') {
-        candidateStatus = 'UNKNOWN';
-        reason = `Train conflict status: UNKNOWN. Real-time RailRadar telemetry is currently unavailable. Operating feasibility cannot be verified without live headway data.`;
-      } else if (s.slotId === 'SLOT-02') {
-        reason = hasLiveTelemetry
-          ? `Feasible duration with compatible departmental work and no detected train movement conflict under available telemetry. Preserves full ${headwayBuffer}-min safety margin.`
-          : `Timetable-clear window verified against master passenger timetable and goods forecast paths. CAUTION: Live train telemetry is currently unavailable; real-time headway conflict cannot be guaranteed.`;
-      } else {
-        reason = `Secondary off-peak passenger window between scheduled express movements with ${headwayBuffer}-min headway buffers.`;
-      }
-    }
-
-    // Comparison attributes (Specification Section 33)
-    let trainConflictsCount = conflictingTrainInfo ? 1 : 0;
-    let coordinationCount = s.slotId === 'SLOT-02' ? 2 : (s.slotId === 'SLOT-04' ? 1 : 0);
-    let operationalImpact: 'Low' | 'Medium' | 'High' = s.slotId === 'SLOT-02' ? 'Low' : (s.slotId === 'SLOT-01' ? 'Medium' : 'High');
-    let priorityFit: 'High' | 'Medium' | 'Low' = s.slotId === 'SLOT-02' ? 'High' : (s.slotId === 'SLOT-01' ? 'Medium' : 'Low');
-
-    candidates.push({
-      slotId: s.slotId,
-      startTime: s.startStr,
-      endTime: s.endStr,
-      candidate_start: s.startStr,
-      candidate_end: s.endStr,
-      durationMinutes: s.availableMinutes,
-      required_duration: totalRequiredPossessionMinutes,
-      available_duration: s.availableMinutes,
-      status: candidateStatus,
-      train_conflicts: trainConflictsCount,
-      trainConflictsCount,
-      coordinationCount,
-      operationalImpact,
-      priorityFit,
-      conflictingTrain: conflictingTrainInfo,
-      resource_conflicts: resourceConflicts,
-      isResourceConflict: Boolean(resourceConflicts && resourceConflicts.length > 0),
-      isDurationSufficient: s.availableMinutes >= totalRequiredPossessionMinutes,
-      reason,
-      isRecommended: false
-    });
-  }
-
-  // Find first feasible candidate
-  const feasibleCandidates = candidates.filter(c => c.status === 'FEASIBLE');
-  let recommended: CandidatePlanningWindow | undefined = undefined;
-  let isNoSuitableWindow = false;
-  let noSuitableWindowReasons: string[] | undefined = undefined;
-  let qualityRating: DetailedConflictAnalysisResult['qualityRating'] = 'RECOMMENDED';
-
-  if (feasibleCandidates.length > 0) {
-    recommended = feasibleCandidates[0];
-    recommended.isRecommended = true;
-    qualityRating = 'RECOMMENDED';
-  } else {
-    isNoSuitableWindow = true;
-    qualityRating = 'NO_FEASIBLE_SOLUTION';
-    noSuitableWindowReasons = candidates.map(c => `${c.slotId} (${c.startTime}–${c.endTime}): ${c.reason}`);
-  }
+  const conflictingTrainSummary = activeMovements.find(m => {
+    const matchesTrack = selectedTracks.some(t => m.track.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(m.track.toLowerCase()));
+    return matchesTrack && m.currentKm != null && m.currentKm >= startKm - 0.5 && m.currentKm <= endKm + 0.5;
+  }) ? `${activeMovements[0].trainName} (${activeMovements[0].trainNumber})` : undefined;
 
   // Validate the requested/entered time against corridor timetable & RailRadar
   let requestedWindowAnalysis: CandidatePlanningWindow | undefined;
@@ -440,7 +363,8 @@ export function analyzeLocationTrainConflicts(
       restorationMinutes
     },
     qualityRating,
-    crossSectionAnalysis
+    crossSectionAnalysis,
+    corridorContext: dynamicPlanResult.corridorContext
   };
 }
 

@@ -1,4 +1,8 @@
-import React, { useState, useEffect } from 'react';
+// src/pages/LiveTrainsPage.tsx
+// Rail Samnvay: Unified Live Railway Operations Workspace
+// Combines Live Operations Map, Compact Radar Grid, Intelligent Train Search, and Bidirectional Maintenance Intelligence
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   TrainTrack, 
   Search, 
@@ -14,15 +18,33 @@ import {
   ExternalLink,
   Layers,
   Map as MapIcon,
-  LayoutGrid
+  LayoutGrid,
+  Wrench,
+  ShieldAlert,
+  CheckCircle2,
+  ChevronDown,
+  Sparkles,
+  Filter,
+  Navigation,
+  HelpCircle,
+  X
 } from 'lucide-react';
 import { useSamnvayStore } from '../store/useSamnvayStore';
 import { useCorridorTrains, useStationBoard, useLiveTrainSearch } from '../hooks/useRailRadar';
-import type { LiveTrainPosition, StationBoardEntry } from '../types/samnvay';
-import { DigitalTwinMap } from '../components/twin/DigitalTwinMap';
+import type { LiveTrainPosition, StationBoardEntry, BlockRequest } from '../types/samnvay';
+import type { CandidatePlanningWindow } from '../types/infrastructure';
 import { RealRailwayMap } from '../components/twin/RealRailwayMap';
 import { checkRailRadarHealth, RailRadarHealthStatus } from '../services/railRadarClient';
 import { useLiveClock, formatIndianTime, formatDelay } from '../utils/dateTime';
+import { LiveTrainDetailPanel } from '../components/samnvay/LiveTrainDetailPanel';
+import { StationTimetableWidget } from '../components/samnvay/StationTimetableWidget';
+import { TrainsBetweenStationsWidget } from '../components/samnvay/TrainsBetweenStationsWidget';
+import { NearbyTrainIntelligenceWidget } from '../components/samnvay/NearbyTrainIntelligenceWidget';
+import { CandidateWindowComparisonMatrix } from '../components/samnvay/CandidateWindowComparisonMatrix';
+import { buildRunIdentity, classifyTrainWorkInteraction } from '../utils/trainIntelligence';
+import { analyzeLocationTrainConflicts } from '../optimization/conflictEngine';
+import { DEFAULT_PLANNING_PARAMETERS } from '../optimization/corridorSchedule';
+import { CORRIDOR_STATION_GEOS, NATIONAL_STATION_GEOS, CorridorStationGeo } from '../utils/railwayGeospatial';
 
 const MAJOR_STATION_CHIPS = [
   { code: 'BZA', name: 'Vijayawada' },
@@ -36,18 +58,96 @@ const MAJOR_STATION_CHIPS = [
 ];
 
 export const LiveTrainsPage: React.FC = () => {
-  const { state, toggleLiveMode, updateLiveTrains, updateStationBoard } = useSamnvayStore();
+  const { 
+    state, 
+    toggleLiveMode, 
+    updateLiveTrains, 
+    updateStationBoard,
+    rescheduleBlock,
+    authorizeAndScheduleBlock,
+    sendToControl
+  } = useSamnvayStore();
+
   const [selectedStation, setSelectedStation] = useState<string>('BZA');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [liveViewMode, setLiveViewMode] = useState<'real-map' | 'twin' | 'table'>('real-map');
   const [healthStatus, setHealthStatus] = useState<RailRadarHealthStatus | null>(null);
 
+  // 1. Shared Unified Train Selection State across Map, Radar Grid, Search, and Detail Panel
+  const [selectedTrainId, setSelectedTrainId] = useState<string | null>(null);
+  const [selectedTrainForPanel, setSelectedTrainForPanel] = useState<LiveTrainPosition | null>(null);
+  const [isDetailPanelOpen, setIsDetailPanelOpen] = useState<boolean>(false);
+
+  // 2. Intelligent Search State
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>('');
+  const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState<boolean>(false);
+
+  // 3. Radar Grid Filter State
+  const [activeFilter, setActiveFilter] = useState<'ALL' | 'APPROACHING' | 'INSIDE' | 'CONFLICT' | 'NONE' | 'UNKNOWN'>('ALL');
+
+  // 4. Map Camera Focus & Telemetry Locate Status State
+  const [mapFocus, setMapFocus] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
+  const [locateStatus, setLocateStatus] = useState<{
+    status: 'IDLE' | 'LOCATING' | 'LOCATED' | 'OUTSIDE_CORRIDOR' | 'LOCATION_UNAVAILABLE' | 'TRAIN_NOT_FOUND';
+    message?: string;
+    trainNumber?: string;
+    trainName?: string;
+  } | null>(null);
+
+  // Maintenance Request Selection State for Master Map Focusing
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [showCandidateWindows, setShowCandidateWindows] = useState<boolean>(true);
+
   // Station Electronic Display Board Dynamic Search State
+  const [stationTab, setStationTab] = useState<'live-board' | 'timetable'>('live-board');
   const [boardSearchQuery, setBoardSearchQuery] = useState('');
   const [boardSearchSuggestions, setBoardSearchSuggestions] = useState<Array<{ name: string; railway_ref: string; zone: string }>>([]);
   const [isSearchingBoardStation, setIsSearchingBoardStation] = useState(false);
   const [isBoardSearchOpen, setIsBoardSearchOpen] = useState(false);
 
+  // True runtime current clock (Asia/Kolkata IST) updating every second
+  const { formattedDateTime: currentLiveDateTime } = useLiveClock(1000);
+
+  // Corridor live tracking hook with 30s interval
+  const { 
+    trains, 
+    source, 
+    lastUpdated, 
+    upstreamUpdatedAt, 
+    isLoading, 
+    refetch, 
+    error: corridorError 
+  } = useCorridorTrains(state.isLiveMode, true, 30_000);
+  
+  // Station live board hook with 30s interval
+  const { 
+    entries: stationEntries, 
+    isLoading: isStationLoading, 
+    refetch: refetchStation 
+  } = useStationBoard(selectedStation, state.isLiveMode, true, 30_000);
+
+  // Single train lookup tied to current live mode for trains outside corridor fleet
+  const { 
+    train: searchedTrain, 
+    isLoading: isSearching, 
+    search, 
+    clear: clearSearch, 
+    error: searchError 
+  } = useLiveTrainSearch(state.isLiveMode);
+
+  // 250ms Debounce for train search input
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+    }, 250);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
+
+  // Check health on mount / mode toggle
+  useEffect(() => {
+    checkRailRadarHealth().then(setHealthStatus);
+  }, [state.isLiveMode]);
+
+  // Sync Station dynamic search suggestions
   useEffect(() => {
     if (!boardSearchQuery.trim()) {
       setBoardSearchSuggestions([]);
@@ -70,40 +170,6 @@ export const LiveTrainsPage: React.FC = () => {
     return () => clearTimeout(timer);
   }, [boardSearchQuery]);
 
-  useEffect(() => {
-    checkRailRadarHealth().then(setHealthStatus);
-  }, [state.isLiveMode]);
-
-  // True runtime current clock (Asia/Kolkata IST) updating every second
-  const { formattedDateTime: currentLiveDateTime } = useLiveClock(1000);
-
-  // Corridor live tracking hook with 30s interval
-  const { 
-    trains, 
-    source, 
-    lastUpdated, 
-    upstreamUpdatedAt,
-    isLoading, 
-    refetch, 
-    error: corridorError 
-  } = useCorridorTrains(state.isLiveMode, true, 30_000);
-  
-  // Station live board hook with 30s interval
-  const { 
-    entries: stationEntries, 
-    isLoading: isStationLoading, 
-    refetch: refetchStation 
-  } = useStationBoard(selectedStation, state.isLiveMode, true, 30_000);
-
-  // Single train lookup tied to current live mode
-  const { 
-    train: searchedTrain, 
-    isLoading: isSearching, 
-    search, 
-    clear: clearSearch, 
-    error: searchError 
-  } = useLiveTrainSearch(state.isLiveMode);
-
   // Sync with Samnvay Store whenever trains update
   useEffect(() => {
     if (trains && trains.length > 0) {
@@ -120,227 +186,562 @@ export const LiveTrainsPage: React.FC = () => {
     }
   }, [stationEntries, selectedStation, source, updateStationBoard]);
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      search(searchQuery.trim(), true);
-    }
-  };
+  const safeTrains = useMemo(() => (Array.isArray(trains) ? trains : []), [trains]);
+  const safeStationEntries = useMemo(() => (Array.isArray(stationEntries) ? stationEntries : []), [stationEntries]);
 
+  // Combined stations list for coordinate lookup
+  const allKnownStations = useMemo(() => {
+    const combined: any[] = Object.values(NATIONAL_STATION_GEOS);
+    Object.values(CORRIDOR_STATION_GEOS).forEach((cs: CorridorStationGeo) => {
+      if (!combined.some(s => s.code === cs.code)) {
+        combined.push(cs);
+      }
+    });
+    return combined;
+  }, []);
+
+  // Format KM utility
   const formatKm = (km: any) => {
     const num = typeof km === 'number' ? km : parseFloat(km);
     return isNaN(num) ? '320.0' : num.toFixed(1);
   };
 
-  const safeTrains = Array.isArray(trains) ? trains : [];
-  const safeStationEntries = Array.isArray(stationEntries) ? stationEntries : [];
+  // Unified select handler to keep Map, Radar Grid, Search and Detail Panel in lockstep
+  const selectTrain = useCallback((train: LiveTrainPosition) => {
+    const stableId = train.runId || train.trainNumber;
+    setSelectedTrainId(stableId);
+    setSelectedTrainForPanel(train);
+    setIsDetailPanelOpen(true);
+
+    if (typeof train.latitude === 'number' && Number.isFinite(train.latitude) && train.latitude !== 0 &&
+        typeof train.longitude === 'number' && Number.isFinite(train.longitude) && train.longitude !== 0) {
+      setMapFocus({ lat: train.latitude, lng: train.longitude, zoom: 14 });
+      setLocateStatus({
+        status: 'LOCATED',
+        trainNumber: train.trainNumber,
+        trainName: train.trainName,
+        message: `Located train ${train.trainNumber} (${train.trainName || ''}) at coordinates [${train.latitude.toFixed(4)}, ${train.longitude.toFixed(4)}]`
+      });
+    } else {
+      const match = allKnownStations.find(s => s.code === train.currentStation);
+      if (match && Number.isFinite(match.lat) && Number.isFinite(match.lng)) {
+        setMapFocus({ lat: match.lat, lng: match.lng, zoom: 14 });
+        setLocateStatus({
+          status: 'LOCATED',
+          trainNumber: train.trainNumber,
+          trainName: train.trainName,
+          message: `Located train ${train.trainNumber} at station ${train.currentStation} [${match.lat.toFixed(4)}, ${match.lng.toFixed(4)}]`
+        });
+      } else {
+        setLocateStatus({
+          status: 'LOCATION_UNAVAILABLE',
+          trainNumber: train.trainNumber,
+          trainName: train.trainName,
+          message: `Live telemetry present for train ${train.trainNumber}, but exact GPS coordinates are currently unmapped.`
+        });
+      }
+    }
+  }, [allKnownStations]);
+
+  // Performance-optimized precomputed train-work interactions
+  const evaluatedTrains = useMemo(() => {
+    const reqs = state.requests || [];
+    return safeTrains.map(train => {
+      let primary = null;
+      for (const req of reqs) {
+        const sKm = req.startKm ?? 12.4;
+        const eKm = req.endKm ?? 13.1;
+        const track = req.affectedTracks?.[0] || 'UP Main';
+        const inter = classifyTrainWorkInteraction(
+          train,
+          {
+            id: req.id,
+            requestId: req.id,
+            startKm: sKm,
+            endKm: eKm,
+            track,
+            sectionId: req.section || req.sectionId,
+            isActiveNow: req.status === 'Active' || req.status === 'Work in Progress',
+            blockStartTime: req.allocatedWindow?.startTime || '04:30',
+            blockEndTime: req.allocatedWindow?.endTime || '06:30'
+          },
+          source
+        );
+
+        if (inter.state === 'IN_AFFECTED_RANGE') {
+          primary = { req, interaction: inter };
+          break;
+        } else if (inter.state === 'APPROACHING') {
+          if (!primary || primary.interaction.state !== 'IN_AFFECTED_RANGE') {
+            primary = { req, interaction: inter };
+          }
+        } else if (inter.state === 'POTENTIAL_CONFLICT') {
+          if (!primary || (primary.interaction.state !== 'IN_AFFECTED_RANGE' && primary.interaction.state !== 'APPROACHING')) {
+            primary = { req, interaction: inter };
+          }
+        } else if (inter.state === 'UNKNOWN') {
+          if (!primary) {
+            primary = { req, interaction: inter };
+          }
+        } else if (!primary) {
+          primary = { req, interaction: inter };
+        }
+      }
+
+      return {
+        train,
+        interaction: primary?.interaction || {
+          state: 'NO_INTERACTION' as const,
+          distanceKm: null,
+          etaMinutes: null,
+          projectedEta: null,
+          severity: 'NONE' as const,
+          reason: 'CLEAR_OF_POSSESSIONS'
+        },
+        targetRequest: primary?.req || null
+      };
+    });
+  }, [safeTrains, state.requests, source]);
+
+  // Intelligent Search Matches (Exact number, Partial number, Name, Semantic Station relation)
+  const searchMatches = useMemo(() => {
+    if (!debouncedSearchQuery) return [];
+    const q = debouncedSearchQuery.toUpperCase();
+
+    return safeTrains.map(train => {
+      const numMatch = train.trainNumber.toUpperCase().includes(q);
+      const nameMatch = (train.trainName || '').toUpperCase().includes(q);
+      let relation: string | null = null;
+
+      if (train.currentStation && train.currentStation.toUpperCase() === q) {
+        relation = `CURRENT AT ${q}`;
+      } else if (train.nextStation && train.nextStation.toUpperCase() === q) {
+        relation = `APPROACHING ${q}`;
+      } else if (train.destinationStation && train.destinationStation.toUpperCase() === q) {
+        relation = `DESTINATION ${q}`;
+      } else if (train.lastReportedStation && train.lastReportedStation.toUpperCase() === q) {
+        relation = `PASSED ${q}`;
+      }
+
+      const matches = numMatch || nameMatch || relation !== null;
+      return matches ? { train, relation, exactNumber: train.trainNumber.toUpperCase() === q } : null;
+    }).filter(Boolean) as Array<{ train: LiveTrainPosition; relation: string | null; exactNumber: boolean }>;
+  }, [debouncedSearchQuery, safeTrains]);
+
+  // Single-match auto-select behaviour
+  useEffect(() => {
+    if (searchMatches.length === 1 && debouncedSearchQuery.length >= 2) {
+      const match = searchMatches[0].train;
+      const stableId = match.runId || match.trainNumber;
+      if (selectedTrainId !== stableId) {
+        setSelectedTrainId(stableId);
+        setSelectedTrainForPanel(match);
+        setIsDetailPanelOpen(true);
+      }
+    }
+  }, [searchMatches, debouncedSearchQuery, selectedTrainId]);
+
+  // Handle outside corridor train lookup result with coordinate validation
+  useEffect(() => {
+    if (searchedTrain) {
+      const stableId = searchedTrain.runId || searchedTrain.trainNumber;
+      setSelectedTrainId(stableId);
+      setSelectedTrainForPanel(searchedTrain);
+      setIsDetailPanelOpen(true);
+
+      if (typeof searchedTrain.latitude === 'number' && Number.isFinite(searchedTrain.latitude) && searchedTrain.latitude !== 0 &&
+          typeof searchedTrain.longitude === 'number' && Number.isFinite(searchedTrain.longitude) && searchedTrain.longitude !== 0) {
+        setMapFocus({ lat: searchedTrain.latitude, lng: searchedTrain.longitude, zoom: 14 });
+        setLocateStatus({
+          status: 'LOCATED',
+          trainNumber: searchedTrain.trainNumber,
+          trainName: searchedTrain.trainName,
+          message: `Located train ${searchedTrain.trainNumber} (${searchedTrain.trainName || ''}) via RailRadar Network GPS.`
+        });
+      } else {
+        const match = allKnownStations.find(s => s.code === searchedTrain.currentStation);
+        if (match && Number.isFinite(match.lat) && Number.isFinite(match.lng)) {
+          setMapFocus({ lat: match.lat, lng: match.lng, zoom: 14 });
+          setLocateStatus({
+            status: 'LOCATED',
+            trainNumber: searchedTrain.trainNumber,
+            trainName: searchedTrain.trainName,
+            message: `Located train ${searchedTrain.trainNumber} (${searchedTrain.trainName || ''}) at station ${searchedTrain.currentStation}.`
+          });
+        } else {
+          setLocateStatus({
+            status: 'LOCATION_UNAVAILABLE',
+            trainNumber: searchedTrain.trainNumber,
+            trainName: searchedTrain.trainName,
+            message: `Train ${searchedTrain.trainNumber} verified on network, but real-time coordinates are currently unavailable.`
+          });
+        }
+      }
+    }
+  }, [searchedTrain, allKnownStations]);
+
+  // Handle national lookup error
+  useEffect(() => {
+    if (searchError) {
+      setLocateStatus({
+        status: 'TRAIN_NOT_FOUND',
+        message: searchError
+      });
+    }
+  }, [searchError]);
+
+  // Preserve selected train across 30s polling intervals
+  useEffect(() => {
+    if (!selectedTrainId || !safeTrains || safeTrains.length === 0) return;
+    const current = safeTrains.find(t => 
+      t.trainNumber === selectedTrainId || 
+      t.runId === selectedTrainId ||
+      `${t.trainNumber}-${t.startDate || t.serviceDate}` === selectedTrainId
+    );
+    if (current) {
+      setSelectedTrainForPanel(current);
+    }
+  }, [safeTrains, selectedTrainId]);
+
+  // Handle Search Submission (for outside corridor search fallback)
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) return;
+
+    // Check exact corridor match first
+    const exactCorridor = safeTrains.find(t => t.trainNumber.toUpperCase() === query.toUpperCase());
+    if (exactCorridor) {
+      selectTrain(exactCorridor);
+      setIsSearchDropdownOpen(false);
+      return;
+    }
+
+    if (searchMatches.length === 1) {
+      selectTrain(searchMatches[0].train);
+      setIsSearchDropdownOpen(false);
+    } else if (searchMatches.length === 0) {
+      // Train is outside active corridor fleet: query national backend
+      setLocateStatus({
+        status: 'LOCATING',
+        message: `Querying RailRadar nationwide telemetry for train ${query}...`
+      });
+      search(query, true);
+      setIsSearchDropdownOpen(false);
+    } else {
+      setIsSearchDropdownOpen(true);
+    }
+  };
+
+  // Filtered Trains for Radar Grid based on active filter chip + search query
+  const filteredRadarTrains = useMemo(() => {
+    let result = evaluatedTrains;
+
+    // 1. Filter by Maintenance Interaction Status
+    if (activeFilter === 'APPROACHING') {
+      result = result.filter(item => item.interaction.state === 'APPROACHING');
+    } else if (activeFilter === 'INSIDE') {
+      result = result.filter(item => item.interaction.state === 'IN_AFFECTED_RANGE');
+    } else if (activeFilter === 'CONFLICT') {
+      result = result.filter(item => item.interaction.state === 'POTENTIAL_CONFLICT');
+    } else if (activeFilter === 'NONE') {
+      result = result.filter(item => item.interaction.state === 'NO_INTERACTION');
+    } else if (activeFilter === 'UNKNOWN') {
+      result = result.filter(item => item.interaction.state === 'UNKNOWN');
+    }
+
+    // 2. Filter by Search Query if present
+    if (debouncedSearchQuery) {
+      const q = debouncedSearchQuery.toUpperCase();
+      result = result.filter(item => {
+        const t = item.train;
+        return (
+          t.trainNumber.toUpperCase().includes(q) ||
+          (t.trainName || '').toUpperCase().includes(q) ||
+          (t.currentStation || '').toUpperCase().includes(q) ||
+          (t.nextStation || '').toUpperCase().includes(q)
+        );
+      });
+    }
+
+    return result;
+  }, [evaluatedTrains, activeFilter, debouncedSearchQuery]);
+
+  // Selected Maintenance Request Object
+  const selectedRequest = useMemo(() => {
+    if (!selectedRequestId) return null;
+    return (state.requests || []).find(r => r.id === selectedRequestId) || null;
+  }, [selectedRequestId, state.requests]);
+
+  // Conflict and Candidate Windows Analysis for Selected Request
+  const candidateAnalysis = useMemo(() => {
+    if (!selectedRequest) return null;
+    const sKm = selectedRequest.startKm ?? 12.4;
+    const eKm = selectedRequest.endKm ?? 13.1;
+    const track = selectedRequest.affectedTracks || ['UP Main'];
+    const dur = selectedRequest.duration || 120;
+    const reqTime = selectedRequest.allocatedWindow?.startTime || selectedRequest.preferredStartTime || '04:30';
+    return analyzeLocationTrainConflicts(
+      sKm,
+      eKm,
+      track,
+      dur,
+      reqTime,
+      safeTrains,
+      DEFAULT_PLANNING_PARAMETERS,
+      source,
+      lastUpdated
+    );
+  }, [selectedRequest, safeTrains, source, lastUpdated]);
+
+  // Critical Approaching Train Alerts (Genuine LIVE Telemetry only)
+  const approachingAlerts = useMemo(() => {
+    if (source !== 'LIVE') return [];
+    return evaluatedTrains.filter(item => {
+      const { train, interaction, targetRequest } = item;
+      if (!targetRequest) return false;
+      if (train.journeyCompleted || train.isTerminated) return false;
+      if (interaction.cannotGenerateLiveAlert) return false;
+      return (
+        interaction.state === 'IN_AFFECTED_RANGE' ||
+        interaction.state === 'APPROACHING' ||
+        interaction.state === 'POTENTIAL_CONFLICT'
+      );
+    });
+  }, [evaluatedTrains, source]);
+
+  // Data freshness badge helper
+  const renderFreshnessPill = () => {
+    if (!state.isLiveMode) {
+      return (
+        <div className="px-3 py-1 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-amber-50 text-amber-700 border-amber-200 shadow-xs">
+          <span className="w-2 h-2 rounded-full bg-amber-500" />
+          <span>RAILRADAR ● DEMO TIMETABLE</span>
+        </div>
+      );
+    }
+    if (source === 'LIVE') {
+      return (
+        <div className="px-3 py-1 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-emerald-50 text-emerald-700 border-emerald-200 shadow-xs">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span>● LIVE (RailRadar API)</span>
+        </div>
+      );
+    }
+    if (source === 'UNAVAILABLE') {
+      return (
+        <div className="px-3 py-1 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-rose-50 text-rose-700 border-rose-200 shadow-xs">
+          <span className="w-2 h-2 rounded-full bg-rose-500" />
+          <span>LIVE DATA UNAVAILABLE</span>
+        </div>
+      );
+    }
+    return (
+      <div className="px-3 py-1 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-slate-50 text-slate-700 border-slate-200 shadow-xs">
+        <span className="w-2 h-2 rounded-full bg-slate-400" />
+        <span>STATUS: {source}</span>
+      </div>
+    );
+  };
 
   return (
-    <div className="space-y-8 animate-fadeIn pb-12">
-      {/* 1. Header & Live Stream Status Banner */}
-      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-railway-border shadow-soft flex flex-col gap-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-6 animate-fadeIn pb-12">
+      {/* 1. Unified Control-Office Header & Telemetry Status */}
+      <div className="bg-white rounded-3xl p-6 sm:p-7 border border-railway-border shadow-soft flex flex-col gap-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-railway-canvas flex items-center justify-center text-railway-forest border border-railway-border shadow-xs">
                 <TrainTrack className="w-5 h-5 text-railway-forest" />
               </div>
-              <h1 className="text-2xl font-bold tracking-tight text-railway-textPrimary">
-                Live Trains
-              </h1>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-railway-textPrimary font-sans">
+                  Live Trains
+                </h1>
+                <p className="text-xs text-railway-textSecondary font-sans">
+                  Real-time railway operations intelligence · Unified Master Map & Radar Control
+                </p>
+              </div>
             </div>
-            <p className="text-sm text-railway-textSecondary max-w-2xl">
-              National Rail Movement Telemetry
-            </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Granular Data Source & Health Pill */}
-            {!state.isLiveMode ? (
-              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-amber-50 text-amber-700 border-amber-200 shadow-xs">
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
-                <span>RAILRADAR ● DEMO TIMETABLE</span>
+          {/* Prominent Train Search Bar */}
+          <div className="relative flex-1 max-w-xl">
+            <form onSubmit={handleSearchSubmit} className="relative flex items-center">
+              <Search className="w-4 h-4 text-railway-textSecondary absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search train number, train name or station (e.g. 12704, Falaknuma, GNT)..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setIsSearchDropdownOpen(true);
+                }}
+                onFocus={() => setIsSearchDropdownOpen(true)}
+                className="w-full pl-10 pr-24 py-2.5 bg-railway-canvas border border-railway-border rounded-full text-xs font-mono focus:outline-none focus:border-railway-forest shadow-xs"
+              />
+              <div className="absolute right-2 flex items-center gap-1">
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      clearSearch();
+                      setIsSearchDropdownOpen(false);
+                    }}
+                    className="p-1 rounded-full text-slate-400 hover:text-slate-600 transition"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  disabled={isSearching}
+                  className="px-3.5 py-1.5 rounded-full bg-railway-forest hover:bg-emerald-800 text-white font-bold text-xs shadow-xs transition disabled:opacity-50"
+                >
+                  {isSearching ? 'Locating...' : 'Locate'}
+                </button>
               </div>
-            ) : source === 'LIVE' ? (
-              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-emerald-50 text-emerald-700 border-emerald-200 shadow-xs">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>RAILRADAR ● LIVE TELEMETRY</span>
-              </div>
-            ) : healthStatus?.failureState === 'NOT_CONFIGURED' ? (
-              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-amber-50 text-amber-700 border-amber-200 shadow-xs">
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
-                <span>RAILRADAR ● NOT CONFIGURED</span>
-              </div>
-            ) : healthStatus?.failureState === 'BACKEND_UNAVAILABLE' ? (
-              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-rose-50 text-rose-700 border-rose-200 shadow-xs">
-                <span className="w-2 h-2 rounded-full bg-rose-500" />
-                <span>RAILRADAR ● BACKEND UNAVAILABLE</span>
-              </div>
-            ) : healthStatus?.failureState === 'AUTHENTICATION_FAILED' ? (
-              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-rose-50 text-rose-700 border-rose-200 shadow-xs">
-                <span className="w-2 h-2 rounded-full bg-rose-500" />
-                <span>RAILRADAR ● AUTH FAILED</span>
-              </div>
-            ) : healthStatus?.providerStatus === 'rate_limited' || healthStatus?.httpStatus === 429 ? (
-              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-amber-50 text-amber-800 border-amber-300 shadow-xs" title="Upstream quota of 1000 monthly requests exceeded">
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
-                <span>RAILRADAR ● RATE LIMITED (429)</span>
-              </div>
-            ) : (
-              <div className="px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 bg-rose-50 text-rose-700 border-rose-200 shadow-xs">
-                <span className="w-2 h-2 rounded-full bg-rose-500" />
-                <span>RAILRADAR ● UNAVAILABLE</span>
+            </form>
+
+            {/* Interactive Search Matches Dropdown */}
+            {isSearchDropdownOpen && searchMatches.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-2 bg-white rounded-2xl border border-railway-border shadow-xl p-2 z-50 max-h-72 overflow-y-auto font-mono text-xs animate-in fade-in">
+                <div className="text-[10px] uppercase font-bold text-slate-400 px-3 py-1.5 border-b border-slate-100 flex items-center justify-between">
+                  <span>Matching Corridor Trains ({searchMatches.length})</span>
+                  <span className="text-[9px] text-slate-400">Click to focus on map</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {searchMatches.map(({ train, relation }) => (
+                    <button
+                      key={train.trainNumber}
+                      type="button"
+                      onClick={() => {
+                        selectTrain(train);
+                        setIsSearchDropdownOpen(false);
+                      }}
+                      className="w-full text-left p-2.5 rounded-xl hover:bg-railway-canvas flex items-center justify-between transition cursor-pointer"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-emerald-800">{train.trainNumber}</span>
+                          <span className="font-sans font-semibold text-slate-900">{train.trainName}</span>
+                          {relation && (
+                            <span className="px-2 py-0.5 rounded-full bg-cyan-50 text-cyan-800 text-[10px] font-bold border border-cyan-200">
+                              {relation}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-sans">
+                          {train.currentStation} → {train.nextStation} ({train.direction || 'UP'} Main) • {train.speedKmph || 85} km/h
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs font-bold text-slate-700">
+                          {train.delayMinutes === 0 ? 'Right Time' : `+${train.delayMinutes}m`}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
+          </div>
 
-            {/* Live / Demo Mode Switcher */}
+          {/* Quick Action Controls */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {renderFreshnessPill()}
+
             <button
               onClick={toggleLiveMode}
-              className={`px-3.5 py-1.5 rounded-full border text-xs font-mono font-medium flex items-center gap-2 shadow-xs transition-all ${
+              className={`px-3 py-1 rounded-full border text-xs font-mono font-medium flex items-center gap-2 shadow-xs transition-all ${
                 state.isLiveMode
                   ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                   : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
               }`}
-              title="Click to toggle between LIVE RailRadar feed and DEMO simulation mode"
+              title="Toggle between LIVE RailRadar feed and DEMO simulation mode"
             >
               <span className={`w-2 h-2 rounded-full ${state.isLiveMode ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-              <span>{state.isLiveMode ? 'MODE: LIVE API' : 'MODE: DEMO TIMETABLE'}</span>
+              <span>{state.isLiveMode ? 'MODE: LIVE' : 'MODE: DEMO'}</span>
             </button>
 
-            {/* Explicit Manual Refresh Button */}
             <button
               onClick={async () => {
                 await Promise.all([refetch(), refetchStation()]);
               }}
               disabled={isLoading || isStationLoading}
-              className="px-4 py-2 rounded-full border border-railway-border text-railway-textPrimary font-semibold text-xs hover:text-railway-forest hover:bg-railway-canvas transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-xs"
+              className="px-3.5 py-1 rounded-full border border-railway-border text-railway-textPrimary font-semibold text-xs hover:text-railway-forest hover:bg-railway-canvas transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-xs"
               title="Request fresh upstream RailRadar telemetry"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${(isLoading || isStationLoading) ? 'animate-spin text-railway-forest' : 'text-railway-textSecondary'}`} />
-              <span>Refresh Feed</span>
+              <span>Refresh</span>
             </button>
-
-            {/* View Mode Switcher: Real Railway Map (Primary) vs 3D Twin vs Tabular Grid */}
-            <div className="flex items-center p-1 bg-neutral-100 rounded-full border border-neutral-200 text-xs font-semibold">
-              <button
-                onClick={() => setLiveViewMode('real-map')}
-                className={`px-3 py-1.5 rounded-full transition flex items-center gap-1.5 ${
-                  liveViewMode === 'real-map'
-                    ? 'bg-emerald-600 text-white shadow-xs font-bold'
-                    : 'text-neutral-600 hover:text-neutral-900'
-                }`}
-                title="Real geographic Indian Railways network map powered by OpenRailwayMap & OSM geometry"
-              >
-                <MapIcon className="w-3.5 h-3.5" />
-                <span>Real Railway Map (Primary)</span>
-              </button>
-              <button
-                onClick={() => setLiveViewMode('twin')}
-                className={`px-3 py-1.5 rounded-full transition flex items-center gap-1.5 ${
-                  liveViewMode === 'twin'
-                    ? 'bg-white text-railway-forest shadow-xs font-bold'
-                    : 'text-neutral-600 hover:text-neutral-900'
-                }`}
-                title="Tactical corridor digital twin representation"
-              >
-                <Layers className="w-3.5 h-3.5 text-cyan-600" />
-                <span>3D Twin (Secondary)</span>
-              </button>
-              <button
-                onClick={() => setLiveViewMode('table')}
-                className={`px-3 py-1.5 rounded-full transition flex items-center gap-1.5 ${
-                  liveViewMode === 'table'
-                    ? 'bg-white text-railway-forest shadow-xs font-bold'
-                    : 'text-neutral-600 hover:text-neutral-900'
-                }`}
-              >
-                <LayoutGrid className="w-3.5 h-3.5 text-neutral-500" />
-                <span>Radar Grid</span>
-              </button>
-            </div>
           </div>
         </div>
 
-        {/* Section 13 UI Requirement: 4 Technical Metric Cards */}
+        {/* Technical Metric Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono">
-          {/* 1. Current Time (Live Runtime Clock in IST) */}
-          <div className="p-3.5 bg-railway-canvas rounded-2xl border border-railway-border">
+          <div className="p-3 bg-railway-canvas rounded-2xl border border-railway-border">
             <div className="text-[10px] uppercase tracking-wider text-railway-textMuted flex items-center gap-1.5 font-bold">
               <Clock className="w-3 h-3 text-railway-forest animate-pulse" />
               <span>Current Time</span>
             </div>
-            <div className="font-bold text-railway-textPrimary mt-1.5 text-xs sm:text-sm text-emerald-800 tracking-tight">
+            <div className="font-bold text-railway-textPrimary mt-1 text-xs sm:text-sm text-emerald-800 tracking-tight">
               {currentLiveDateTime}
             </div>
           </div>
 
-          {/* 2. Polling Interval */}
-          <div className="p-3.5 bg-railway-canvas rounded-2xl border border-railway-border">
+          <div className="p-3 bg-railway-canvas rounded-2xl border border-railway-border">
             <div className="text-[10px] uppercase tracking-wider text-railway-textMuted flex items-center gap-1.5 font-bold">
               <Activity className="w-3 h-3 text-railway-textSecondary" />
-              <span>Polling Interval</span>
+              <span>Polling Rate</span>
             </div>
-            <div className="font-bold text-railway-textPrimary mt-1.5 text-xs sm:text-sm">
-              30s
+            <div className="font-bold text-railway-textPrimary mt-1 text-xs sm:text-sm">
+              30s Cycle
             </div>
           </div>
 
-          {/* 3. Last Telemetry Sync (Freezes on failure) */}
-          <div className="p-3.5 bg-railway-canvas rounded-2xl border border-railway-border">
+          <div className="p-3 bg-railway-canvas rounded-2xl border border-railway-border">
             <div className="text-[10px] uppercase tracking-wider text-railway-textMuted flex items-center gap-1.5 font-bold">
               <Radio className="w-3 h-3 text-railway-textSecondary" />
-              <span>Last Telemetry Sync</span>
+              <span>Last Sync</span>
             </div>
-            <div className="font-bold text-railway-textPrimary mt-1.5 text-xs sm:text-sm">
-              {lastUpdated 
-                ? formatIndianTime(lastUpdated) 
-                : isLoading 
-                ? 'Syncing...' 
-                : source === 'UNAVAILABLE' 
-                ? 'Unavailable (No Sync)' 
-                : 'Pending First Sync'}
+            <div className="font-bold text-railway-textPrimary mt-1 text-xs sm:text-sm">
+              {lastUpdated ? formatIndianTime(lastUpdated) : isLoading ? 'Syncing...' : 'Pending'}
             </div>
           </div>
 
-          {/* 4. Source */}
-          <div className="p-3.5 bg-railway-canvas rounded-2xl border border-railway-border">
+          <div className="p-3 bg-railway-canvas rounded-2xl border border-railway-border">
             <div className="text-[10px] uppercase tracking-wider text-railway-textMuted flex items-center gap-1.5 font-bold">
               <ShieldCheck className="w-3 h-3 text-railway-textSecondary" />
-              <span>Source</span>
+              <span>Active Fleet</span>
             </div>
-            <div className="font-bold text-railway-textPrimary mt-1.5 text-xs sm:text-sm truncate">
-              {source === 'LIVE' ? 'RailRadar API' : source === 'DEMO' ? 'RailRadar (Demo)' : 'Unavailable'}
+            <div className="font-bold text-railway-textPrimary mt-1 text-xs sm:text-sm">
+              {safeTrains.length} Corridor Trains
             </div>
           </div>
         </div>
 
-        {/* Optional Source Timestamp from RailRadar Upstream */}
+        {/* Upstream source timestamp indicator */}
         {upstreamUpdatedAt && (
           <div className="text-[11px] font-mono text-railway-textMuted flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Source Timestamp (RailRadar Upstream): <strong className="text-railway-textPrimary">{formatIndianTime(upstreamUpdatedAt)}</strong></span>
+            <span>Upstream Telemetry: <strong className="text-railway-textPrimary">{formatIndianTime(upstreamUpdatedAt)}</strong></span>
           </div>
         )}
       </div>
 
+      {/* Upstream notice banner if rate limited or degraded */}
       {corridorError && (
         <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
             <div>
-              <span className="font-mono font-bold">
-                {healthStatus?.providerStatus === 'rate_limited' || healthStatus?.httpStatus === 429 || corridorError.includes('429')
-                  ? 'RAILRADAR RATE LIMITED (429):'
-                  : 'RAILRADAR NOTICE:'}
-              </span>{' '}
-              <span className="text-amber-800">
-                {healthStatus?.providerStatus === 'rate_limited' || healthStatus?.httpStatus === 429 || corridorError.includes('429')
-                  ? 'Monthly quota reached. Switch to Demo mode for simulated telemetry.'
-                  : healthStatus?.message || corridorError}
-              </span>
+              <span className="font-mono font-bold">RAILRADAR NOTICE:</span>{' '}
+              <span className="text-amber-800">{corridorError}</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2">
             {state.isLiveMode && (
               <button
                 onClick={toggleLiveMode}
@@ -355,301 +756,486 @@ export const LiveTrainsPage: React.FC = () => {
               }}
               className="px-3 py-1 rounded-full bg-white border border-amber-300 text-amber-800 text-xs font-semibold hover:bg-amber-50 transition"
             >
-              Retry Connection
+              Retry
             </button>
           </div>
         </div>
       )}
 
-      {/* 2. Primary Real Railway Map (Default) or Secondary Twin */}
-      {liveViewMode === 'real-map' && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <h2 className="text-base font-bold text-railway-textPrimary">
-                All-India Real Railway Network Map
-              </h2>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-50 text-emerald-700 font-semibold border border-emerald-300">
-                PRIMARY OPERATIONAL LAYER
+      {/* Telemetry Locate Status Banner */}
+      {locateStatus && locateStatus.status !== 'IDLE' && (
+        <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 text-xs font-mono transition-all animate-fadeIn ${
+          locateStatus.status === 'LOCATED' 
+            ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+            : locateStatus.status === 'LOCATING'
+            ? 'bg-blue-50 text-blue-900 border-blue-300'
+            : locateStatus.status === 'LOCATION_UNAVAILABLE'
+            ? 'bg-amber-50 text-amber-900 border-amber-300'
+            : 'bg-rose-50 text-rose-900 border-rose-300'
+        }`}>
+          <div className="flex items-center gap-2.5">
+            {locateStatus.status === 'LOCATED' && <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />}
+            {locateStatus.status === 'LOCATING' && <RefreshCw className="w-4 h-4 text-blue-600 animate-spin flex-shrink-0" />}
+            {locateStatus.status === 'LOCATION_UNAVAILABLE' && <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />}
+            {locateStatus.status === 'TRAIN_NOT_FOUND' && <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />}
+            <div>
+              <span className="font-bold uppercase tracking-wider text-[11px] mr-2">
+                [{locateStatus.status}]:
               </span>
+              <span>{locateStatus.message}</span>
             </div>
-            <span className="text-xs font-mono text-railway-textSecondary">
-              OpenRailwayMap / OSM-Derived Infrastructure Geometry & RailRadar Live Telemetry
-            </span>
           </div>
-          <RealRailwayMap 
-            onStationSelect={(code) => setSelectedStation(code)}
-            selectedStationCode={selectedStation}
-          />
+          <button
+            type="button"
+            onClick={() => setLocateStatus(null)}
+            className="p-1 rounded-full hover:bg-black/5 text-slate-500 hover:text-slate-800 transition"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
-      {liveViewMode === 'twin' && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-500 animate-pulse" />
-              <h2 className="text-base font-bold text-railway-textPrimary">
-                Corridor Tactical Digital Twin
-              </h2>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-50 text-cyan-700 font-semibold border border-cyan-300">
-                SECONDARY TACTICAL VIEW
+      {/* 2. LIVE OPERATIONS MAP (Master Railway Operations Map) */}
+      <div className="space-y-4">
+        {/* Approaching Train Safety Alerts Banner */}
+        {approachingAlerts.length > 0 && (
+          <div className="bg-rose-50 border-2 border-rose-400 rounded-3xl p-5 shadow-soft space-y-3 animate-fadeIn">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-rose-200 pb-3">
+              <div className="flex items-center gap-2.5 text-rose-950 font-bold text-sm font-sans">
+                <ShieldAlert className="w-5 h-5 text-rose-600 animate-bounce flex-shrink-0" />
+                <span>OPERATIONAL SAFETY ALERT: LIVE TRAIN APPROACHING MAINTENANCE WORK ZONE</span>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-rose-600 text-white">
+                {approachingAlerts.length} Critical Event{approachingAlerts.length > 1 ? 's' : ''}
               </span>
             </div>
-            <span className="text-xs font-mono text-railway-textSecondary">
-              Map-matched WGS84 railway track geometry & possession hazards
-            </span>
-          </div>
-          <DigitalTwinMap />
-        </div>
-      )}
 
-      {/* 3. Interactive Train Search */}
-      <div className="bg-white rounded-3xl p-6 sm:p-7 border border-railway-border shadow-soft">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
-          <div>
-            <h2 className="text-base font-bold text-railway-textPrimary">Live Train Query</h2>
-            <p className="text-xs text-railway-textSecondary">Check current sectional coordinate and telemetry for any IR express rake</p>
-          </div>
-          <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="w-4 h-4 text-railway-textSecondary absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Train No. (e.g. 12627, 20834)"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-4 py-2 bg-railway-canvas border border-railway-border rounded-full text-xs font-mono focus:outline-none focus:border-railway-forest w-56 sm:w-64"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {approachingAlerts.map(({ train, interaction, targetRequest }, idx) => (
+                <div 
+                  key={`${train.trainNumber}-${idx}`} 
+                  className="bg-white p-4 rounded-2xl border border-rose-200 shadow-xs flex flex-col justify-between gap-3 text-xs font-mono"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded-full bg-rose-950 text-rose-200 font-bold text-xs">
+                        TRAIN {train.trainNumber}
+                      </span>
+                      <span className="font-sans font-bold text-slate-900 text-sm truncate max-w-[180px]">
+                        {train.trainName}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                        interaction.state === 'IN_AFFECTED_RANGE' ? 'bg-red-600 text-white animate-pulse' : 'bg-amber-500 text-white'
+                      }`}>
+                        {interaction.state}
+                      </span>
+                    </div>
+
+                    <div className="text-slate-600 text-[11px] leading-tight">
+                      Target Work: <strong className="text-slate-900">{targetRequest?.id}</strong> ({targetRequest?.work})
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 text-rose-900 text-[11px] pt-1">
+                      <span>Sector: <strong>KM {targetRequest?.startKm}–{targetRequest?.endKm}</strong></span>
+                      <span>•</span>
+                      <span>Distance: <strong>{interaction.distanceKm != null ? `${interaction.distanceKm} km` : 'Imminent'}</strong></span>
+                      <span>•</span>
+                      <span>ETA: <strong>{interaction.etaMinutes != null ? `${interaction.etaMinutes}m` : '<10m'}</strong></span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (targetRequest) setSelectedRequestId(targetRequest.id);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] transition shadow-xs flex items-center gap-1 cursor-pointer"
+                    >
+                      <Wrench className="w-3 h-3" />
+                      <span>Focus Work Zone</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => selectTrain(train)}
+                      className="px-3 py-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-bold text-[11px] transition cursor-pointer"
+                    >
+                      Inspect Train
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-            <button
-              type="submit"
-              disabled={isSearching}
-              className="px-4 py-2 rounded-full bg-railway-forest text-white text-xs font-semibold hover:bg-railway-forestHover transition-colors disabled:opacity-50"
+          </div>
+        )}
+
+        {/* Master Map Toolbar & Work Zone Filter Dropdown */}
+        <div className="bg-white rounded-3xl p-4 sm:p-5 border border-railway-border shadow-soft flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200 shadow-xs">
+              <MapIcon className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-railway-textPrimary font-sans">
+                  Live Operations Map
+                </h2>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-50 text-emerald-700 font-bold border border-emerald-300">
+                  REAL NETWORK GEOMETRY
+                </span>
+              </div>
+              <p className="text-xs text-railway-textSecondary font-sans">
+                Real-time train vectors, physical tracks, stations, signals, and active maintenance possession envelopes
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex items-center gap-2">
+              <Wrench className="w-4 h-4 text-emerald-700" />
+              <span className="text-xs font-bold text-railway-textPrimary whitespace-nowrap">Focus Work Zone:</span>
+            </div>
+            <select
+              value={selectedRequestId || ''}
+              onChange={(e) => setSelectedRequestId(e.target.value ? e.target.value : null)}
+              className="px-3.5 py-2 bg-railway-canvas border border-railway-border rounded-2xl text-xs font-mono font-semibold text-railway-textPrimary focus:outline-none focus:border-railway-forest shadow-xs max-w-[280px] sm:max-w-[340px] truncate"
             >
-              {isSearching ? 'Tracking...' : 'Query'}
-            </button>
-            {searchedTrain && (
+              <option value="">-- All Requests / Full Corridor View --</option>
+              {(state.requests || []).map(req => (
+                <option key={req.id} value={req.id}>
+                  {req.id}: {req.work} (KM {req.startKm}–{req.endKm}) · [{req.status}]
+                </option>
+              ))}
+            </select>
+            {selectedRequestId && (
               <button
                 type="button"
-                onClick={clearSearch}
-                className="px-3 py-2 text-xs text-railway-textSecondary hover:text-railway-textPrimary"
+                onClick={() => setSelectedRequestId(null)}
+                className="px-3 py-2 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-mono font-semibold transition"
               >
-                Clear
+                Reset
               </button>
             )}
-          </form>
+          </div>
         </div>
 
-        {searchError && (
-          <div className="mt-4 p-4 bg-red-50 text-red-700 text-xs rounded-2xl border border-red-200 flex items-center gap-2.5 shadow-2xs">
-            <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0" />
-            <span className="font-semibold">{searchError}</span>
-          </div>
-        )}
+        {/* Master Leaflet Railway Map */}
+        <RealRailwayMap 
+          selectedTrainId={selectedTrainId || undefined}
+          selectedTrain={selectedTrainForPanel}
+          mapFocus={mapFocus}
+          onTrainSelect={selectTrain}
+          onStationSelect={(code) => setSelectedStation(code)}
+          selectedStationCode={selectedStation}
+          selectedRequestId={selectedRequestId || undefined}
+          onRequestSelect={(id) => setSelectedRequestId(id)}
+        />
 
-        {searchedTrain && !searchError && (
-          <div className="mt-4 p-5 rounded-2xl bg-railway-canvas border border-railway-border flex flex-wrap items-center justify-between gap-4">
-            <div className="space-y-1.5">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full bg-railway-forest text-white text-xs font-mono font-bold">
-                  {searchedTrain.trainNumber}
-                </span>
-                <span className="font-bold text-sm text-railway-textPrimary">{searchedTrain.trainName}</span>
-                <span className="text-xs font-mono text-railway-textSecondary">({searchedTrain.direction} Line)</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  {source === 'LIVE' ? 'LIVE RAILRADAR' : 'DEMO TIMETABLE'}
-                </span>
-                {searchedTrain.status && (
-                  <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold border ${
-                    searchedTrain.status === 'RUNNING'
-                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                      : searchedTrain.status === 'COMPLETED'
-                      ? 'bg-neutral-100 text-neutral-800 border-neutral-300'
-                      : 'bg-amber-100 text-amber-800 border-amber-300'
-                  }`}>
-                    {searchedTrain.status}
-                  </span>
-                )}
-                {searchedTrain.startDate && (
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300">
-                    Originated: {searchedTrain.startDate}
-                  </span>
-                )}
-                {searchedTrain.upstreamUpdatedAt && (
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-50 text-sky-800 border border-sky-200">
-                    Telemetry: {formatIndianTime(searchedTrain.upstreamUpdatedAt)}
-                  </span>
-                )}
-              </div>
-              <div className="text-xs text-railway-textSecondary flex flex-wrap items-center gap-3">
-                <span>
-                  Current: <strong className="text-railway-textPrimary">{searchedTrain.currentStationName || searchedTrain.currentStation} ({searchedTrain.currentStation})</strong>
-                </span>
-                <span>•</span>
-                <span>
-                  Distance from Origin: <strong className="text-railway-textPrimary">{formatKm(searchedTrain.distanceTravelledKm || searchedTrain.currentKm)} km</strong>
-                </span>
-                <span>•</span>
-                <span>
-                  Next Station: <strong className="text-railway-textPrimary">{searchedTrain.nextStationName || searchedTrain.nextStation} ({searchedTrain.nextStation})</strong>
-                </span>
-                {searchedTrain.nextHaltStation && (
-                  <>
-                    <span>•</span>
-                    <span>
-                      Next Halt: <strong className="text-railway-textPrimary">{searchedTrain.nextHaltName || searchedTrain.nextHaltStation} ({searchedTrain.nextHaltStation})</strong>
-                      {searchedTrain.nextHaltEta && searchedTrain.nextHaltEta !== '—' && (
-                        <span className="ml-1 text-railway-textSecondary font-mono">[{searchedTrain.nextHaltEta} IST]</span>
-                      )}
+        {/* Nearby Train Intelligence & Candidate Matrices when a Work Zone is Selected */}
+        {selectedRequest && (
+          <div className="space-y-6 pt-2 animate-fadeIn">
+            <NearbyTrainIntelligenceWidget
+              request={selectedRequest}
+              liveTrains={safeTrains}
+              dataSource={source}
+              onSelectTrain={(trainNumber) => {
+                const tr = safeTrains.find(t => t.trainNumber === trainNumber);
+                if (tr) selectTrain(tr);
+              }}
+            />
+
+            {candidateAnalysis?.candidateWindows && candidateAnalysis.candidateWindows.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-600" />
+                    <h3 className="text-base font-bold text-railway-textPrimary font-sans">
+                      Candidate Possession Windows · Decision Support Matrix
+                    </h3>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-50 text-cyan-800 border border-cyan-200 font-bold">
+                      {candidateAnalysis.candidateWindows.length} Feasible Windows
                     </span>
-                  </>
-                )}
-                <span>•</span>
-                <span>Speed: <strong className="text-railway-textPrimary">{searchedTrain.speedKmph} km/h</strong></span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="text-right font-mono">
-                <div className="text-xs text-railway-textSecondary">Expected At Next Station</div>
-                <div className="text-sm font-bold text-railway-textPrimary">{searchedTrain.expectedArrival} IST</div>
-              </div>
-              {(() => {
-                const delayInfo = formatDelay(searchedTrain.delaySeconds, searchedTrain.delayMinutes);
-                return (
-                  <div className={`px-3 py-1.5 rounded-full text-xs font-bold font-mono border ${delayInfo.colorClass}`}>
-                    {delayInfo.text}
                   </div>
-                );
-              })()}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 3. Corridor Trains Radar Grid */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-railway-textPrimary flex items-center gap-2">
-              <span>Priority Railway Corridor Movements</span>
-              <span className="text-xs font-mono text-railway-textSecondary font-normal">(Configured Prototype: BPP – CLX – VTM)</span>
-            </h2>
-            <p className="text-xs text-railway-textSecondary">Real-time positions used by Constraint Engine for dynamic headway checks</p>
-          </div>
-          <span className="text-xs font-mono text-railway-textSecondary">
-            {safeTrains.length} Rakes Monitored
-          </span>
-        </div>
-
-        {safeTrains.length === 0 ? (
-          <div className="p-16 text-center space-y-4 rounded-3xl bg-white border border-railway-border shadow-xs">
-            <div className="w-16 h-16 rounded-full bg-railway-canvas text-railway-textMuted mx-auto flex items-center justify-center border border-railway-border">
-              <TrainTrack className="w-8 h-8 text-neutral-400" />
-            </div>
-            <div className="space-y-1">
-              <h3 className="text-lg font-bold text-railway-textPrimary font-sans">
-                {source === 'UNAVAILABLE' ? 'Live Telemetry Feed Unavailable' : 'No train movements detected'}
-              </h3>
-              <p className="text-xs text-railway-textSecondary max-w-sm mx-auto leading-relaxed">
-                {corridorError 
-                  ? corridorError 
-                  : 'No train rakes currently detected on corridor telemetry feed. Telemetry will appear here as soon as trains enter section coordinates.'}
-              </p>
-              {state.isLiveMode && (
-                <div className="pt-3">
                   <button
-                    onClick={toggleLiveMode}
-                    className="px-4 py-2 bg-railway-forest text-white rounded-full text-xs font-semibold hover:bg-emerald-800 transition shadow-xs"
+                    type="button"
+                    onClick={() => setShowCandidateWindows(!showCandidateWindows)}
+                    className="text-xs font-mono text-railway-forest hover:underline font-semibold cursor-pointer"
                   >
-                    Switch to Demo Timetable Mode
+                    {showCandidateWindows ? 'Hide Decision Matrix' : 'Show Decision Matrix'}
                   </button>
                 </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {safeTrains.map((t: LiveTrainPosition) => {
-              return (
-                <div 
-                  key={t.trainNumber}
-                  className="bg-white rounded-3xl p-6 border border-railway-border shadow-soft hover:shadow-md transition-shadow relative overflow-hidden flex flex-col justify-between"
-                >
-                  {/* Status Bar */}
-                  <div className={`absolute top-0 left-0 right-0 h-1 ${
-                    t.delayMinutes === 0 ? 'bg-emerald-500' : t.delayMinutes <= 15 ? 'bg-amber-500' : 'bg-red-500'
-                  }`} />
 
-                  <div>
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                      <div>
-                        <span className="px-2.5 py-1 rounded-full bg-railway-canvas text-railway-forest text-xs font-mono font-bold border border-railway-border">
-                          {t.trainNumber}
-                        </span>
-                        <h3 className="font-bold text-sm text-railway-textPrimary mt-2 leading-tight">
-                          {t.trainName}
-                        </h3>
-                        <div className="text-xs text-railway-textSecondary font-mono mt-0.5">
-                          Line: {t.direction} Main • Pos: KM {formatKm(t.currentKm)}
-                        </div>
-                      </div>
-
-                      {(() => {
-                        const delayInfo = formatDelay(t.delaySeconds, t.delayMinutes);
-                        return (
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold whitespace-nowrap border ${delayInfo.colorClass}`}>
-                            {delayInfo.text}
-                          </span>
-                        );
-                      })()}
-                    </div>
-
-                    {/* Route & Progress Info */}
-                    <div className="p-3.5 bg-railway-canvas rounded-2xl space-y-2 mb-4 text-xs font-mono border border-railway-border/60">
-                      <div className="flex items-center justify-between text-railway-textSecondary">
-                        <span>Last: <strong className="text-railway-textPrimary">{t.lastReportedStation}</strong></span>
-                        <ArrowRight className="w-3 h-3 text-railway-textSecondary" />
-                        <span>Next: <strong className="text-railway-textPrimary">{t.nextStation}</strong></span>
-                      </div>
-                      <div className="flex items-center justify-between pt-1 border-t border-railway-border/40 text-[11px]">
-                        <span className="text-railway-textSecondary">Expected: <strong>{t.expectedArrival} IST</strong></span>
-                        <span className="text-railway-textSecondary">Speed: <strong>{t.speedKmph} km/h</strong></span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-3 border-t border-railway-border/60 flex items-center justify-between text-xs text-railway-textSecondary">
-                    <span className="flex items-center gap-1.5">
-                      <Activity className="w-3.5 h-3.5 text-railway-forest" />
-                      <span>{t.status || 'RUNNING'}</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-railway-canvas text-railway-forest font-bold border border-railway-border">
-                        {state.isLiveMode ? 'RAILRADAR' : 'DEMO'}
-                      </span>
-                    </span>
-                    <span className="font-mono text-[11px] text-railway-textMuted">
-                      {t.platform ? `PF-${t.platform}` : 'THROUGH'} · {t.upstreamUpdatedAt ? formatIndianTime(t.upstreamUpdatedAt) : 'Live'}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+                {showCandidateWindows && (
+                  <CandidateWindowComparisonMatrix
+                    request={selectedRequest}
+                    candidateWindows={candidateAnalysis.candidateWindows}
+                    onSelectWindow={(cand: CandidatePlanningWindow) => {
+                      rescheduleBlock(selectedRequest.id, cand.startTime, cand.endTime, `Controller selected candidate window ${cand.slotId}: ${cand.startTime}–${cand.endTime}`);
+                    }}
+                    onAuthorizeWindow={(cand: CandidatePlanningWindow) => {
+                      if (state.currentUser.role === 'Planning Officer') {
+                        sendToControl(selectedRequest.id, `Recommended window ${cand.startTime}–${cand.endTime} accepted by Planning Officer`);
+                      } else {
+                        authorizeAndScheduleBlock(selectedRequest.id, `Possession authorized in recommended candidate window ${cand.startTime}–${cand.endTime}`);
+                      }
+                    }}
+                    userRole={state.currentUser.role}
+                  />
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* 4. Live Station Electronic Display Board */}
+      {/* 3. RADAR GRID (Tabular View directly integrated in the same workspace) */}
+      <div className="bg-white rounded-3xl p-6 sm:p-7 border border-railway-border shadow-soft space-y-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-railway-border pb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <LayoutGrid className="w-5 h-5 text-emerald-700" />
+              <h2 className="text-lg font-bold text-railway-textPrimary font-sans">
+                Radar Grid · Active Corridor Movements
+              </h2>
+            </div>
+            <p className="text-xs text-railway-textSecondary font-sans">
+              Click any train row to synchronize and focus on the Live Operations Map
+            </p>
+          </div>
+
+          {/* Operational Filter Chips */}
+          <div className="flex flex-wrap items-center gap-1.5 font-mono text-xs">
+            <button
+              onClick={() => setActiveFilter('ALL')}
+              className={`px-3 py-1 rounded-full font-bold transition-all ${
+                activeFilter === 'ALL'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+              }`}
+            >
+              ALL ({evaluatedTrains.length})
+            </button>
+            <button
+              onClick={() => setActiveFilter('APPROACHING')}
+              className={`px-3 py-1 rounded-full font-bold transition-all ${
+                activeFilter === 'APPROACHING'
+                  ? 'bg-amber-500 text-white shadow-xs'
+                  : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+              }`}
+            >
+              APPROACHING WORK ({evaluatedTrains.filter(t => t.interaction.state === 'APPROACHING').length})
+            </button>
+            <button
+              onClick={() => setActiveFilter('INSIDE')}
+              className={`px-3 py-1 rounded-full font-bold transition-all ${
+                activeFilter === 'INSIDE'
+                  ? 'bg-rose-600 text-white shadow-xs'
+                  : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100'
+              }`}
+            >
+              INSIDE WORK ZONE ({evaluatedTrains.filter(t => t.interaction.state === 'IN_AFFECTED_RANGE').length})
+            </button>
+            <button
+              onClick={() => setActiveFilter('CONFLICT')}
+              className={`px-3 py-1 rounded-full font-bold transition-all ${
+                activeFilter === 'CONFLICT'
+                  ? 'bg-yellow-400 text-slate-950 shadow-xs'
+                  : 'bg-yellow-50 text-yellow-800 border border-yellow-200 hover:bg-yellow-100'
+              }`}
+            >
+              POTENTIAL CONFLICT ({evaluatedTrains.filter(t => t.interaction.state === 'POTENTIAL_CONFLICT').length})
+            </button>
+            <button
+              onClick={() => setActiveFilter('NONE')}
+              className={`px-3 py-1 rounded-full font-bold transition-all ${
+                activeFilter === 'NONE'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+              }`}
+            >
+              NO INTERACTION ({evaluatedTrains.filter(t => t.interaction.state === 'NO_INTERACTION').length})
+            </button>
+            <button
+              onClick={() => setActiveFilter('UNKNOWN')}
+              className={`px-3 py-1 rounded-full font-bold transition-all ${
+                activeFilter === 'UNKNOWN'
+                  ? 'bg-slate-700 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200'
+              }`}
+            >
+              UNKNOWN ({evaluatedTrains.filter(t => t.interaction.state === 'UNKNOWN').length})
+            </button>
+          </div>
+        </div>
+
+        {/* Tabular Display */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs font-mono">
+            <thead>
+              <tr className="border-b border-railway-border text-railway-textSecondary text-[11px] uppercase tracking-wider">
+                <th className="pb-3 pl-3 font-semibold">Train</th>
+                <th className="pb-3 font-semibold">Name</th>
+                <th className="pb-3 font-semibold">Location</th>
+                <th className="pb-3 font-semibold">Section / Next</th>
+                <th className="pb-3 font-semibold">Track</th>
+                <th className="pb-3 font-semibold">Direction</th>
+                <th className="pb-3 font-semibold">Speed</th>
+                <th className="pb-3 font-semibold">Delay</th>
+                <th className="pb-3 font-semibold">Status</th>
+                <th className="pb-3 font-semibold">Maintenance Interaction</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-railway-border/60">
+              {filteredRadarTrains.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="py-12 text-center text-slate-500 font-sans">
+                    <div className="space-y-1">
+                      <p className="font-semibold text-slate-700">No trains match current filter and search criteria</p>
+                      <p className="text-xs text-slate-400">Try selecting [ ALL ] or clearing your search query</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredRadarTrains.map(({ train, interaction, targetRequest }) => {
+                  const isSelected = selectedTrainId === (train.runId || train.trainNumber);
+                  const delayInfo = formatDelay(train.delaySeconds, train.delayMinutes);
+
+                  return (
+                    <tr 
+                      key={train.trainNumber}
+                      onClick={() => selectTrain(train)}
+                      className={`cursor-pointer transition-all ${
+                        isSelected 
+                          ? 'bg-cyan-50/90 ring-2 ring-cyan-500 font-medium' 
+                          : 'hover:bg-railway-canvas/70'
+                      }`}
+                    >
+                      {/* Train Number */}
+                      <td className="py-3 pl-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-cyan-600 animate-ping' : 'bg-emerald-500'}`} />
+                          <span className="font-bold text-railway-forest text-xs">{train.trainNumber}</span>
+                        </div>
+                      </td>
+
+                      {/* Name */}
+                      <td className="py-3 font-sans font-semibold text-slate-900 max-w-[160px] truncate">
+                        {train.trainName || 'Express'}
+                      </td>
+
+                      {/* Location */}
+                      <td className="py-3 text-slate-700">
+                        {train.currentStationName || train.currentStation || `KM ${formatKm(train.currentKm)}`}
+                      </td>
+
+                      {/* Section / Next */}
+                      <td className="py-3 text-slate-600">
+                        {train.nextStationName || train.nextStation || '—'}
+                      </td>
+
+                      {/* Track */}
+                      <td className="py-3 text-slate-600">
+                        {train.platform ? `PF-${train.platform}` : 'Main'}
+                      </td>
+
+                      {/* Direction */}
+                      <td className="py-3 text-slate-700 font-bold">
+                        {train.direction || 'UP'}
+                      </td>
+
+                      {/* Speed */}
+                      <td className="py-3 text-slate-900">
+                        {train.speedKmph != null ? `${train.speedKmph} km/h` : '85 km/h'}
+                      </td>
+
+                      {/* Delay */}
+                      <td className="py-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${delayInfo.colorClass}`}>
+                          {delayInfo.text}
+                        </span>
+                      </td>
+
+                      {/* Status */}
+                      <td className="py-3">
+                        <span className="text-[10px] uppercase font-bold text-slate-600">
+                          {train.status || 'RUNNING'}
+                        </span>
+                      </td>
+
+                      {/* Maintenance Interaction */}
+                      <td className="py-3">
+                        {interaction.state === 'IN_AFFECTED_RANGE' ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-600 text-white flex items-center gap-1 w-fit animate-pulse">
+                            <ShieldAlert className="w-3 h-3" />
+                            <span>INSIDE WORK ZONE</span>
+                          </span>
+                        ) : interaction.state === 'APPROACHING' ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white flex items-center gap-1 w-fit">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>APPROACHING</span>
+                          </span>
+                        ) : interaction.state === 'POTENTIAL_CONFLICT' ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-400 text-slate-950 flex items-center gap-1 w-fit border border-yellow-500">
+                            <Clock className="w-3 h-3" />
+                            <span>POTENTIAL CONFLICT</span>
+                          </span>
+                        ) : interaction.state === 'UNKNOWN' ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700 flex items-center gap-1 w-fit">
+                            <HelpCircle className="w-3 h-3 text-slate-500" />
+                            <span>UNKNOWN</span>
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1 w-fit border border-emerald-300">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            <span>NO INTERACTION</span>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 4. Live Station Electronic Display Board & Timetable */}
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-railway-border shadow-soft space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-railway-border pb-5">
           <div>
-            <h2 className="text-base font-bold text-railway-textPrimary">Station Electronic Display Board</h2>
-            <p className="text-xs text-railway-textSecondary">Live platform indicator synchronized with automatic block signalling feed</p>
+            <h2 className="text-base font-bold text-railway-textPrimary font-sans">
+              Station Electronic Display Board
+            </h2>
+            <p className="text-xs text-railway-textSecondary font-sans">
+              Live station platform indicator synchronized with railway signalling feeds
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            {/* Quick Major Station Chips */}
+            <div className="flex items-center p-1 bg-neutral-100 rounded-full border border-neutral-200 text-xs font-semibold">
+              <button
+                onClick={() => setStationTab('live-board')}
+                className={`px-3 py-1.5 rounded-full transition ${
+                  stationTab === 'live-board'
+                    ? 'bg-emerald-700 text-white shadow-xs font-bold'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                LIVE BOARD
+              </button>
+              <button
+                onClick={() => setStationTab('timetable')}
+                className={`px-3 py-1.5 rounded-full transition ${
+                  stationTab === 'timetable'
+                    ? 'bg-purple-700 text-white shadow-xs font-bold'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                STATION TIMETABLE
+              </button>
+            </div>
+
             <div className="flex flex-wrap gap-1 bg-railway-canvas p-1 rounded-2xl border border-railway-border">
               {MAJOR_STATION_CHIPS.map((stn) => (
                 <button
@@ -671,7 +1257,6 @@ export const LiveTrainsPage: React.FC = () => {
               ))}
             </div>
 
-            {/* Nationwide Dynamic Station Search */}
             <div className="relative">
               <div className="flex items-center gap-1.5 px-3 py-1 bg-railway-canvas rounded-full border border-railway-border text-xs">
                 <Search className="w-3.5 h-3.5 text-railway-textSecondary" />
@@ -721,71 +1306,86 @@ export const LiveTrainsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Board Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs font-mono">
-            <thead>
-              <tr className="border-b border-railway-border text-railway-textSecondary text-[11px] uppercase tracking-wider">
-                <th className="pb-3 pl-3 font-semibold">Train No / Name</th>
-                <th className="pb-3 font-semibold">Type</th>
-                <th className="pb-3 font-semibold">Dir</th>
-                <th className="pb-3 font-semibold">Sch. Time</th>
-                <th className="pb-3 font-semibold">Expected</th>
-                <th className="pb-3 font-semibold">PF</th>
-                <th className="pb-3 font-semibold">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-railway-border/60">
-              {safeStationEntries.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-8 text-center text-railway-textSecondary font-sans">
-                    No scheduled arrivals or departures for station {selectedStation} in this time window.
-                  </td>
+        {stationTab === 'timetable' ? (
+          <StationTimetableWidget stationCode={selectedStation} />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead>
+                <tr className="border-b border-railway-border text-railway-textSecondary text-[11px] uppercase tracking-wider">
+                  <th className="pb-3 pl-3 font-semibold">Train No / Name</th>
+                  <th className="pb-3 font-semibold">Type</th>
+                  <th className="pb-3 font-semibold">Dir</th>
+                  <th className="pb-3 font-semibold">Sch. Time</th>
+                  <th className="pb-3 font-semibold">Expected</th>
+                  <th className="pb-3 font-semibold">PF</th>
+                  <th className="pb-3 font-semibold">Status</th>
                 </tr>
-              ) : (
-                safeStationEntries.map((e: StationBoardEntry, idx: number) => (
-                  <tr key={`${e.trainNumber}-${idx}`} className="hover:bg-railway-canvas/60 transition-colors">
-                    <td className="py-3.5 pl-3">
-                      <div className="flex items-center gap-2 font-sans">
-                        <span className="font-mono font-bold text-railway-forest">{e.trainNumber}</span>
-                        <span className="font-medium text-railway-textPrimary">{e.trainName}</span>
-                      </div>
-                    </td>
-                    <td className="py-3.5 text-railway-textSecondary">{e.type}</td>
-                    <td className="py-3.5 text-railway-textSecondary">{e.direction}</td>
-                    <td className="py-3.5 text-railway-textSecondary">{e.scheduledTime}</td>
-                    <td className="py-3.5 font-bold text-railway-textPrimary">{e.expectedTime}</td>
-                    <td className="py-3.5 font-bold text-railway-forest">{e.platform ? `PF-${e.platform}` : '—'}</td>
-                    <td className="py-3.5">
-                      {(() => {
-                        const delayInfo = formatDelay(null, e.delayMinutes);
-                        return (
-                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold border ${delayInfo.colorClass}`}>
-                            {delayInfo.text}
-                          </span>
-                        );
-                      })()}
+              </thead>
+              <tbody className="divide-y divide-railway-border/60">
+                {safeStationEntries.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-railway-textSecondary font-sans">
+                      No scheduled arrivals or departures for station {selectedStation} in this time window.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : (
+                  safeStationEntries.map((e: StationBoardEntry, idx: number) => (
+                    <tr key={`${e.trainNumber}-${idx}`} className="hover:bg-railway-canvas/60 transition-colors">
+                      <td className="py-3.5 pl-3">
+                        <div className="flex items-center gap-2 font-sans">
+                          <span className="font-mono font-bold text-railway-forest">{e.trainNumber}</span>
+                          <span className="font-medium text-railway-textPrimary">{e.trainName}</span>
+                        </div>
+                      </td>
+                      <td className="py-3.5 text-railway-textSecondary">{e.type}</td>
+                      <td className="py-3.5 text-railway-textSecondary">{e.direction}</td>
+                      <td className="py-3.5 text-railway-textSecondary">{e.scheduledTime}</td>
+                      <td className="py-3.5 font-bold text-railway-textPrimary">{e.expectedTime}</td>
+                      <td className="py-3.5 font-bold text-railway-forest">{e.platform ? `PF-${e.platform}` : '—'}</td>
+                      <td className="py-3.5">
+                        {(() => {
+                          const delayInfo = formatDelay(null, e.delayMinutes);
+                          return (
+                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold border ${delayInfo.colorClass}`}>
+                              {delayInfo.text}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* 5. System & Advisory Attribution Footer */}
+      {/* 5. Trains Between Stations Planning Utility */}
+      <TrainsBetweenStationsWidget />
+
+      {/* 6. System & Advisory Attribution Footer */}
       <div className="p-3.5 rounded-2xl bg-railway-canvas border border-railway-border text-xs text-railway-textSecondary flex flex-wrap items-center justify-between gap-3 font-mono">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-railway-forest flex-shrink-0" />
-          <span className="font-bold text-railway-textPrimary">RAILRADAR ● LIVE • ADVISORY</span>
+          <span className="font-bold text-railway-textPrimary">RAIL SAMNVAY ● UNIFIED LIVE OPERATIONS WORKSPACE</span>
           <span className="text-neutral-300">|</span>
-          <span className="text-railway-textMuted font-sans">External train telemetry used for planning assistance.</span>
+          <span className="text-railway-textMuted font-sans">External telemetry from RailRadar synchronized for operational decision support.</span>
         </div>
         <div className="text-[11px] text-railway-textMuted">
-          RAIL SAMNVAY · Decision Support • Railway Maintenance Planning
+          SIH PS 26027 · Automated Possession Planning & Dynamicheadway Safety
         </div>
       </div>
+
+      {/* Compact Live Train Detail Panel */}
+      <LiveTrainDetailPanel
+        isOpen={isDetailPanelOpen}
+        onClose={() => setIsDetailPanelOpen(false)}
+        train={selectedTrainForPanel}
+        source={source}
+        routeGeometry={selectedTrainForPanel?.routeGeometry}
+      />
     </div>
   );
 };

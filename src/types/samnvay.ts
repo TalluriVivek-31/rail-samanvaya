@@ -259,6 +259,17 @@ export interface BlockRequest {
   parentBlockId?: string;
   bundledRequestIds?: string[];
   spatialOverlapWith?: string[];
+
+  // Single Current Allocation & Explicit Replanning Invariants
+  authorizedBlockId?: string;
+  scheduledBlockId?: string;
+  recommendedWindowId?: string;
+  planningStatus?: 'UNPLANNED' | 'IN_PLANNING' | 'RECOMMENDED' | 'AUTHORIZED' | 'SCHEDULED' | 'SUPERSEDED' | 'REPLAN_REQUESTED';
+  previousBlockId?: string;
+  replanReason?: string;
+  replanRequestedBy?: string;
+  replanTimestamp?: string;
+
   // Work & Defect Specification
   workType?: string;
   maintenanceCategory?: 'Preventive' | 'Corrective' | 'Emergency';
@@ -486,6 +497,46 @@ export interface LiveTrainPosition {
   nextHaltEta?: string;
   nextStationName?: string;
   currentStationName?: string;
+  confidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+  routeGeometry?: Array<{ lat: number; lng: number; stationCode?: string; stationName?: string }>;
+  // Train Lifecycle & Destination
+  originStation?: string;
+  destinationStation?: string;
+  isTerminated?: boolean;
+  journeyCompleted?: boolean;
+  remainingStations?: string[];
+  remainingRouteKm?: number;
+  source?: DataSource | string;
+}
+
+export type TrainMaintenanceInteractionState = 
+  | 'NO_INTERACTION'
+  | 'APPROACHING'
+  | 'IN_AFFECTED_RANGE'
+  | 'SCHEDULED_DURING_BLOCK'
+  | 'POTENTIAL_CONFLICT'
+  | 'UNKNOWN';
+
+export interface NearbyTrainMovementIntelligence {
+  trainNumber: string;
+  trainName: string;
+  runId?: string | null;
+  serviceDate?: string;
+  currentKm: number;
+  currentLocationDescription: string;
+  distanceToWorkAreaKm: number | null;
+  projectedEta: string | null;
+  etaMinutes: number | null;
+  speedKmph: number;
+  delayMinutes: number;
+  direction: 'UP' | 'DN';
+  track?: string;
+  status: string;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+  interactionState: TrainMaintenanceInteractionState;
+  conflictSeverity: 'HARD_CONFLICT' | 'POTENTIAL_CONFLICT' | 'ADVISORY' | 'NONE' | 'UNKNOWN';
+  conflictReason?: string;
+  lastTelemetryTimestamp?: string;
 }
 
 export interface StationBoardEntry {
@@ -713,6 +764,8 @@ export type SystemMessageType =
   | 'COORDINATION_OPPORTUNITY' 
   | 'CONFLICT_ALERT' 
   | 'APPROVAL_UPDATE' 
+  | 'AUTHORIZATION_UPDATE'
+  | 'EXECUTION_DISPATCH'
   | 'REVISION_REQUEST' 
   | 'PLANNING_RECOMMENDATION'
   | 'SAFETY_NOTICE';

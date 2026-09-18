@@ -868,3 +868,78 @@ export async function searchRailRadarTrains(query: string): Promise<any[]> {
     return [];
   }
 }
+
+/**
+ * Fetch station timetable
+ */
+export async function fetchStationTimetable(
+  stationCode: string,
+  options: { date?: string; refresh?: boolean } = {}
+): Promise<ApiResponse<any[]>> {
+  try {
+    const qs = new URLSearchParams();
+    if (options.date) qs.set('date', options.date);
+    if (options.refresh) qs.set('refresh', 'true');
+    const qStr = qs.toString() ? `?${qs.toString()}` : '';
+
+    const res = await fetch(`/api/railradar/station/${encodeURIComponent(stationCode)}/timetable${qStr}`);
+    if (!res.ok) {
+      return { success: false, data: null, source: 'UNAVAILABLE', timestamp: new Date().toISOString(), error: `HTTP ${res.status}` };
+    }
+    const json = await res.json();
+    return { success: !!json.success, data: json.data, source: json.source || 'LIVE', timestamp: json.timestamp || new Date().toISOString() };
+  } catch (err: any) {
+    return { success: false, data: null, source: 'UNAVAILABLE', timestamp: new Date().toISOString(), error: err?.message };
+  }
+}
+
+/**
+ * Helper to extract Leaflet-compatible [lat, lng] coordinates and waypoint count from GeoJSON route data.
+ * Converts GeoJSON [lon, lat] coordinates to Leaflet [lat, lng].
+ * Does NOT fabricate straight lines when unavailable - returns null.
+ */
+export function extractRouteCoordinates(routeData: any): {
+  coordinates: [number, number][];
+  waypointsCount: number;
+  stations?: any[];
+} | null {
+  if (!routeData) return null;
+  const target = routeData.geojson || routeData;
+  let rawCoords: number[][] = [];
+  if (target.geometry && Array.isArray(target.geometry.coordinates)) {
+    rawCoords = target.geometry.coordinates;
+  } else if (Array.isArray(target.coordinates)) {
+    rawCoords = target.coordinates;
+  } else if (Array.isArray(target)) {
+    rawCoords = target;
+  }
+
+  if (!rawCoords || rawCoords.length === 0) return null;
+
+  const leafletCoords: [number, number][] = rawCoords
+    .filter((pt: any) => Array.isArray(pt) && pt.length >= 2 && typeof pt[0] === 'number' && typeof pt[1] === 'number')
+    .map((pt: any) => [pt[1], pt[0]] as [number, number]);
+
+  if (leafletCoords.length === 0) return null;
+
+  return {
+    coordinates: leafletCoords,
+    waypointsCount: leafletCoords.length,
+    stations: routeData.properties?.stations || routeData.stations || []
+  };
+}
+
+/**
+ * Fetch real route coordinates for a train from backend proxy.
+ */
+export async function fetchTrainRouteCoordinates(trainNumber: string): Promise<{
+  coordinates: [number, number][];
+  waypointsCount: number;
+  stations?: any[];
+} | null> {
+  if (!trainNumber) return null;
+  const res = await fetchTrainRouteGeometry(trainNumber);
+  if (!res.success || !res.data) return null;
+  return extractRouteCoordinates(res.data);
+}
+

@@ -6,3 +6,4 @@ export * from './priorityEngine';
 export * from './conflictEngine';
 export * from './spatialBundling';
 export * from './cpmNetwork';
+export * from './dynamicBlockPlanner';

@@ -246,9 +246,71 @@ export function normalizeTrainData(raw: any, trainNumber: string, expectedDate?:
                (typeof t.currentLocation?.longitude === 'number' && !isNaN(t.currentLocation.longitude)) ? t.currentLocation.longitude :
                (typeof t.lng === 'number' && !isNaN(t.lng)) ? t.lng :
                (typeof t.lon === 'number' && !isNaN(t.lon)) ? t.lon : undefined,
+    confidence: (() => {
+      const lat = (typeof t.latitude === 'number' && !isNaN(t.latitude)) ? t.latitude : 
+                  (typeof t.currentLocation?.latitude === 'number' && !isNaN(t.currentLocation.latitude)) ? t.currentLocation.latitude :
+                  (typeof t.lat === 'number' && !isNaN(t.lat)) ? t.lat : undefined;
+      const lng = (typeof t.longitude === 'number' && !isNaN(t.longitude)) ? t.longitude : 
+                  (typeof t.currentLocation?.longitude === 'number' && !isNaN(t.currentLocation.longitude)) ? t.currentLocation.longitude :
+                  (typeof t.lng === 'number' && !isNaN(t.lng)) ? t.lng :
+                  (typeof t.lon === 'number' && !isNaN(t.lon)) ? t.lon : undefined;
+      const hasCoords = typeof lat === 'number' && typeof lng === 'number' && lat !== 0 && lng !== 0;
+      const updateTimeMs = upstreamUpdated ? Date.parse(upstreamUpdated) : 0;
+      const ageMins = updateTimeMs > 0 ? (Date.now() - updateTimeMs) / (60 * 1000) : 999;
+      if (hasCoords && ageMins <= 15) return 'HIGH';
+      if (hasCoords && ageMins <= 60) return 'MEDIUM';
+      if (currentStation && currentStation !== '—' && ageMins <= 30) return 'MEDIUM';
+      if (currentStation || nextStation) return 'LOW';
+      return 'UNKNOWN';
+    })() as 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN',
     speedKmph: speed,
     platform: (t.platform ? Number(t.platform) : null) || (targetNext?.platform ? Number(targetNext.platform) : null),
-    status: String(t.status || t.currentLocation?.status || 'RUNNING').toUpperCase(),
+    status: (() => {
+      const raw = String(t.status || t.currentLocation?.status || 'RUNNING').toUpperCase();
+      const terminalStatuses = ['TERMINATED', 'ARRIVED', 'COMPLETED', 'JOURNEY_COMPLETED', 'AT_DESTINATION', 'FINISHED', 'TERMINAL'];
+      if (terminalStatuses.includes(raw)) return raw;
+      return raw || 'RUNNING';
+    })(),
+    // Train Lifecycle & Destination Extraction (Section 4 & 5)
+    originStation: String(t.origin || t.originStation || t.originStationCode || t.train?.origin || t.train?.source || (route.length > 0 ? route[0]?.stationCode : '') || '') || undefined,
+    destinationStation: String(t.destination || t.destinationStation || t.destinationStationCode || t.train?.destination || (route.length > 0 ? route[route.length - 1]?.stationCode : '') || '') || undefined,
+    remainingStations: (() => {
+      if (route.length === 0) return undefined;
+      const filtered = currSeq !== undefined 
+        ? route.filter((r: any) => typeof r.sequence === 'number' ? r.sequence >= currSeq : true)
+        : route;
+      return filtered.map((r: any) => r.stationCode).filter(Boolean);
+    })(),
+    isTerminated: (() => {
+      // Level 1: Explicit upstream status
+      const raw = String(t.status || t.currentLocation?.status || '').toUpperCase();
+      const terminalStatuses = ['TERMINATED', 'ARRIVED', 'COMPLETED', 'JOURNEY_COMPLETED', 'AT_DESTINATION', 'FINISHED', 'TERMINAL'];
+      if (terminalStatuses.includes(raw)) return true;
+      // Level 2: Explicit completion flag
+      if (t.journeyCompleted === true || t.isTerminated === true || t.hasTerminated === true || t.terminated === true) return true;
+      // Level 3: Confirmed destination reached via route sequence/destination station
+      const dest = String(t.destination || t.destinationStation || t.destinationStationCode || t.train?.destination || (route.length > 0 ? route[route.length - 1]?.stationCode : '') || '');
+      const isAtFinalSeq = currSeq !== undefined && route.length > 0 && currSeq >= route[route.length - 1]?.sequence;
+      const isAtDest = dest && currentStation && currentStation !== '—' && currentStation === dest;
+      if ((isAtFinalSeq || isAtDest) && (nextStation === '—' || !nextStation || nextStation === currentStation || raw === 'ARRIVED')) {
+        return true;
+      }
+      return false;
+    })(),
+    journeyCompleted: (() => {
+      const raw = String(t.status || t.currentLocation?.status || '').toUpperCase();
+      const terminalStatuses = ['TERMINATED', 'ARRIVED', 'COMPLETED', 'JOURNEY_COMPLETED', 'AT_DESTINATION', 'FINISHED', 'TERMINAL'];
+      if (terminalStatuses.includes(raw)) return true;
+      if (t.journeyCompleted === true || t.isTerminated === true || t.hasTerminated === true || t.terminated === true) return true;
+      const dest = String(t.destination || t.destinationStation || t.destinationStationCode || t.train?.destination || (route.length > 0 ? route[route.length - 1]?.stationCode : '') || '');
+      const isAtFinalSeq = currSeq !== undefined && route.length > 0 && currSeq >= route[route.length - 1]?.sequence;
+      const isAtDest = dest && currentStation && currentStation !== '—' && currentStation === dest;
+      if ((isAtFinalSeq || isAtDest) && (nextStation === '—' || !nextStation || nextStation === currentStation || raw === 'ARRIVED')) {
+        return true;
+      }
+      return false;
+    })(),
+    source: 'LIVE',
     lastUpdated: upstreamUpdated || undefined,
     upstreamUpdatedAt: upstreamUpdated,
     fetchedAt: new Date().toISOString()
@@ -1293,3 +1355,19 @@ export async function getTrainDirectory(
     timestamp: new Date().toISOString()
   };
 }
+
+/**
+ * Builds canonical normalized Run Identity: Train Number + Service Date + Run ID
+ */
+export function buildRunIdentity(trainNumber: string, scheduledDate: string, runSequence: number = 1): string {
+  const cleanDate = (scheduledDate || '').replace(/[^0-9]/g, '').slice(0, 8);
+  return `${trainNumber}-${cleanDate || 'RUN'}-RUN-${runSequence}`;
+}
+
+// Section 24 Normalized Backend Service API Aliases
+export const getLiveTrain = getLiveTrainStatus;
+export const getStationLive = getLiveStationBoard;
+export const getTrainRoute = getLiveTrainRoute;
+export const searchTrain = searchRailRadarTrains;
+export const searchStation = searchRailRadarStations;
+

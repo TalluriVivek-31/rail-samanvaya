@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { LoginPage } from './components/auth/LoginPage';
-import { TopCommandBar, Sidebar, SamnvayPage } from './components/layout';
+import { FloatingHeader, Sidebar, SamnvayPage } from './components/layout';
 import {
   OverviewPage,
   BlockRequestsPage,
@@ -109,20 +109,20 @@ export const App: React.FC = () => {
 
   // 4. Authenticated Control Room Command Center
   return (
-    <div className="min-h-screen bg-railway-canvas text-railway-textPrimary flex flex-col font-sans selection:bg-railway-forest selection:text-white">
-      {/* Government-Grade Header Command Bar */}
-      <TopCommandBar />
+    <div className="min-h-screen bg-[#F2F2EF] text-[#393D3F] flex flex-col font-sans selection:bg-[#393D3F] selection:text-white">
+      {/* Editorial Floating Header */}
+      <FloatingHeader />
 
       {/* Main Workspace Layout (Sidebar + Operations Viewport) */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Role-Filtered Operational Sidebar */}
+        {/* Role-Filtered Modern Navigation Rail */}
         <Sidebar 
           currentPage={activePage} 
           onSelectPage={setCurrentPage} 
         />
 
         {/* Main Operations Viewport */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-railway-canvas">
+        <main className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6 pt-1 bg-[#F2F2EF]">
           <div className="max-w-7xl mx-auto">
             <ErrorBoundary
               fallbackTitle="Operational Viewport Notice"
@@ -186,20 +186,20 @@ export const App: React.FC = () => {
         </main>
       </div>
 
-      {/* Footer Command Status Bar */}
-      <footer className="bg-white border-t border-railway-border py-2 px-6 flex flex-wrap items-center justify-between text-[11px] font-mono text-railway-textMuted shadow-xs">
+      {/* Modern Status Footer */}
+      <footer className="bg-white border-t border-[#E8E6DF] py-2 px-6 flex flex-wrap items-center justify-between text-[11px] font-mono text-[#546A7B] shadow-xs">
         <div className="flex items-center space-x-3">
-          <span className="text-railway-forest font-bold">RAIL SAMANVAYA</span>
+          <span className="text-[#393D3F] font-extrabold">RAIL SAMANVAYA</span>
           <span>•</span>
-          <span>INDIAN RAILWAYS · NATIONAL NETWORK</span>
+          <span>INDIAN RAILWAYS · BZA CONTROL CENTER</span>
           <span>•</span>
-          <span className="text-emerald-700 font-bold">SECURE OPERATIONAL SESSION</span>
+          <span className="text-[#16A34A] font-extrabold">AUTHENTICATED DISPATCH</span>
         </div>
         <div className="flex items-center space-x-2">
           <span>CONSOLE:</span>
-          <span className="text-railway-textPrimary font-bold">{state.currentUser.employeeId} ({state.currentUser.role})</span>
+          <span className="text-[#393D3F] font-bold">{state.currentUser.employeeId} ({state.currentUser.role})</span>
           <span>|</span>
-          <span className="text-emerald-700 font-bold">DISPATCH AUTHORIZED</span>
+          <span className="text-[#16A34A] font-bold">G&SR CHAPTER XV</span>
         </div>
       </footer>
 

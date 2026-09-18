@@ -7,6 +7,22 @@ export default {
   theme: {
     extend: {
       colors: {
+        df: {
+          dark: '#393D3F',
+          canvas: '#F2F2EF',
+          surface: '#FFFFFF',
+          card: '#FBFBFA',
+          muted: '#C6C5B9',
+          steelblue: '#546A7B',
+          teal: '#62929E',
+          green: '#16A34A',
+          amber: '#F59E0B',
+          orange: '#F97316',
+          red: '#DC2626',
+          violet: '#6D5DF5',
+          border: '#E8E6DF',
+          borderSubtle: '#F0EFEA',
+        },
         railway: {
           forest: '#14342B',
           forestDark: '#0D241E',
@@ -47,10 +63,12 @@ export default {
         }
       },
       borderRadius: {
-        '2xl': '18px',
+        'xl': '16px',
+        '2xl': '20px',
         '3xl': '24px',
         '4xl': '28px',
         '5xl': '32px',
+        'pill': '9999px',
       },
       fontFamily: {
         sans: ['Plus Jakarta Sans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],

@@ -45,6 +45,7 @@ import { buildRunIdentity, classifyTrainWorkInteraction } from '../utils/trainIn
 import { analyzeLocationTrainConflicts } from '../optimization/conflictEngine';
 import { DEFAULT_PLANNING_PARAMETERS } from '../optimization/corridorSchedule';
 import { CORRIDOR_STATION_GEOS, NATIONAL_STATION_GEOS, CorridorStationGeo } from '../utils/railwayGeospatial';
+import { EditorialHero } from '../components/common/EditorialHero';
 
 const MAJOR_STATION_CHIPS = [
   { code: 'BZA', name: 'Vijayawada' },
@@ -546,23 +547,27 @@ export const LiveTrainsPage: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
-      {/* 1. Unified Control-Office Header & Telemetry Status */}
-      <div className="bg-white rounded-3xl p-6 sm:p-7 border border-railway-border shadow-soft flex flex-col gap-5">
+      {/* 1. Master Editorial Hero */}
+      <EditorialHero
+        category="Telemetry & Operational Radar"
+        titleLines={['LIVE RAILWAY', 'MOVEMENT']}
+        subtitle="Real-time corridor train movements, dynamic GPS telemetry, approaching work zone alerts, and nationwide locator."
+        badges={[
+          { label: state.isLiveMode ? 'LIVE RAILRADAR' : 'DEMO MODE', variant: state.isLiveMode ? 'green' : 'amber' },
+          { label: `${safeTrains.length} TRACKED IN CORRIDOR`, variant: 'teal' },
+          { label: 'SCR BZA DIVISION', variant: 'steel' },
+        ]}
+        actionSlot={renderFreshnessPill()}
+        bgMotif="grid"
+      />
+
+      {/* 2. Control Bar with Prominent Train Search */}
+      <div className="bg-white rounded-3xl p-5 sm:p-6 border border-railway-border shadow-xs flex flex-col gap-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-railway-canvas flex items-center justify-center text-railway-forest border border-railway-border shadow-xs">
-                <TrainTrack className="w-5 h-5 text-railway-forest" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-railway-textPrimary font-sans">
-                  Live Trains
-                </h1>
-                <p className="text-xs text-railway-textSecondary font-sans">
-                  Real-time railway operations intelligence · Unified Master Map & Radar Control
-                </p>
-              </div>
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-extrabold uppercase tracking-wider text-[#546A7B]">
+              Corridor Telemetry Search
+            </span>
           </div>
 
           {/* Prominent Train Search Bar */}

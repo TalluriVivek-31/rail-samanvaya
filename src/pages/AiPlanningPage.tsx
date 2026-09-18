@@ -36,6 +36,7 @@ import { NearbyTrainIntelligenceWidget } from '../components/samnvay/NearbyTrain
 import { CandidateWindowComparisonMatrix } from '../components/samnvay/CandidateWindowComparisonMatrix';
 import { TimetableSearchWidget } from '../components/samnvay/TimetableSearchWidget';
 import { isPlanningEligible } from '../utils/requestLifecycle';
+import { EditorialHero } from '../components/common/EditorialHero';
 
 interface AiPlanningPageProps {
   onNavigate?: (page: SamnvayPage) => void;
@@ -242,30 +243,27 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
   };
 
   return (
-    <div className="space-y-8 pb-12">
-      {/* 1. HEADER */}
-      <div className="border-b border-railway-border pb-5 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-full bg-emerald-50 text-railway-forest flex items-center justify-center font-bold">
-              <Calendar className="w-4 h-4" />
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight text-railway-textPrimary font-sans">
-              Planning Engine
-            </h1>
+    <div className="space-y-6 pb-12">
+      {/* 1. Master Editorial Hero */}
+      <EditorialHero
+        category="Constraint-Based Optimization"
+        titleLines={['FIND THE', 'SAFE GAP']}
+        subtitle="Divisional timetable gap solver, headway cushion computation, and safe maintenance possession slot allocation."
+        badges={[
+          { label: 'CP-SAT OPTIMIZER ACTIVE', variant: 'green' },
+          { label: '15-MIN HEADWAY CUSHION', variant: 'teal' },
+          { label: 'G&SR CHAPTER XV ENFORCED', variant: 'steel' },
+          { label: `${planningEligibleRequests.length} ELIGIBLE FOR ALLOCATION`, variant: 'dark' },
+        ]}
+        actionSlot={
+          <div className="flex items-center gap-2">
+            <span className="px-4 py-2 rounded-full bg-white border border-[#E8E6DF] text-xs font-bold text-[#393D3F] shadow-xs">
+              SOLVER: CP-SAT LINEAR
+            </span>
           </div>
-          <p className="text-sm text-railway-textSecondary mt-1">
-            Corridor Allocation & Timetable Optimization
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-2 text-xs font-mono">
-          <span className="text-railway-textMuted">SOLVER BACKEND:</span>
-          <span className="bg-white px-3 py-1.5 rounded-full border border-railway-border text-railway-forest font-bold shadow-xs">
-            CP-SAT LINEAR PROGRAMMING
-          </span>
-        </div>
-      </div>
+        }
+        bgMotif="turnout"
+      />
 
       {/* 2. PARAMETERS & SOLVER CONTROL CARD */}
       <div className="bg-white rounded-3xl border border-railway-border p-6 sm:p-8 shadow-xs space-y-6">

@@ -32,6 +32,7 @@ import type {
   InfrastructureCondition
 } from '../types/samnvay';
 import { isExecutionEligible, isCompleted } from '../utils/requestLifecycle';
+import { EditorialHero } from '../components/common/EditorialHero';
 
 interface ExecutionPageProps {
   onNavigate?: (page: SamnvayPage) => void;
@@ -224,47 +225,40 @@ export const ExecutionPage: React.FC<ExecutionPageProps> = ({ onNavigate }) => {
   const hasActiveTsr = activeReq.operationalRestriction?.type === 'RESTRICTED';
 
   return (
-    <div className="space-y-8 pb-12">
-      {/* Header */}
-      <div className="border-b border-railway-border pb-5 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-800 flex items-center justify-center font-bold">
-              <PlayCircle className="w-4 h-4" />
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight text-railway-textPrimary font-sans">
-              Operational Execution Tracker
-            </h1>
+    <div className="space-y-6 pb-12">
+      {/* Master Editorial Hero */}
+      <EditorialHero
+        category="On-Track Execution & Handover"
+        titleLines={['ON THE', 'GROUND']}
+        subtitle="Real-time track possession monitoring, G&SR Chapter XV safety protection, parallel departmental sign-offs, and track restoration."
+        badges={[
+          { label: `ACTIVE: ${activeReq.id}`, variant: 'teal' },
+          { label: `${activeReq.department} DEPT`, variant: 'steel' },
+          { label: 'G&SR CHAPTER XV COMPLIANT', variant: 'green' },
+          { label: activeReq.status, variant: 'amber' },
+        ]}
+        actionSlot={
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => {
+                openBlockCommunication(activeReq.id);
+                if (onNavigate) {
+                  onNavigate('communication');
+                } else {
+                  window.location.hash = 'communication';
+                }
+              }}
+              className="px-4 py-2.5 rounded-full bg-[#393D3F] hover:bg-[#546A7B] text-white font-bold text-xs transition flex items-center gap-2 shadow-xs cursor-pointer"
+              title="Open operational communication to report progress or status"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-[#62929E]" />
+              <span>REPORT UPDATE</span>
+            </button>
           </div>
-          <p className="text-sm text-railway-textSecondary mt-1">
-            Real-time track possession monitoring, safety protection protocol, and block release lifecycle.
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-3 font-mono text-xs">
-          <button
-            type="button"
-            onClick={() => {
-              openBlockCommunication(activeReq.id);
-              if (onNavigate) {
-                onNavigate('communication');
-              } else {
-                window.location.hash = 'communication';
-              }
-            }}
-            className="px-3.5 py-1.5 rounded-full bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 font-semibold text-xs transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
-            title="Open operational communication to report progress or status"
-          >
-            <MessageSquare className="w-3.5 h-3.5 text-purple-700" />
-            <span>REPORT OPERATIONAL UPDATE</span>
-          </button>
-
-          <span className="text-railway-textMuted">TRACKED:</span>
-          <span className="bg-white px-3 py-1.5 rounded-full border border-railway-border text-railway-forest font-bold shadow-xs">
-            {activeReq.id} ({activeReq.department} · {activeReq.section} · {activeReq.stationCode || 'MAG'})
-          </span>
-        </div>
-      </div>
+        }
+        bgMotif="turnout"
+      />
 
       {/* REQUISITION SELECTOR PILLS BAR */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-white border border-railway-border text-xs font-mono">

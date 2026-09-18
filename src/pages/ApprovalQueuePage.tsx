@@ -36,6 +36,7 @@ import {
 import { BlockRequest, Department, UserRole, SamnvayPage } from '../types/samnvay';
 import { calculateCpmActivityNetwork } from '../utils/conflictPlanner';
 import { isPendingApproval } from '../utils/requestLifecycle';
+import { EditorialHero } from '../components/common/EditorialHero';
 
 interface ApprovalQueuePageProps {
   onNavigate?: (page: SamnvayPage) => void;
@@ -119,82 +120,80 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
   };
 
   return (
-    <div className="space-y-8 pb-12">
-      {/* Header */}
-      <div className="border-b border-railway-border pb-5 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-railway-textPrimary font-sans">
-            Approval Queue
-          </h1>
-          <p className="text-sm text-railway-textSecondary mt-1">
-            Operating Concurrence & Technical Verification
-          </p>
-        </div>
-
-        {/* Current Active Officer Badge */}
-        <div className="bg-white border border-railway-border px-4 py-2 rounded-full flex items-center space-x-2.5 text-xs font-mono shadow-xs">
-          <UserCheck className="w-4 h-4 text-railway-signalGreen" />
-          <span className="text-railway-textMuted">Active Officer:</span>
-          <span className="text-railway-textPrimary font-bold">{state.currentUser.name}</span>
-          <span className="px-2 py-0.5 rounded-full bg-railway-canvas text-railway-forest font-semibold border border-railway-border">
-            {state.currentUser.role}
-          </span>
-        </div>
-      </div>
+    <div className="space-y-6 pb-12">
+      {/* Master Editorial Hero */}
+      <EditorialHero
+        category="Operating Concurrence"
+        titleLines={['APPROVAL', 'CONTROL']}
+        subtitle="Departmental clearance, operating concurrence, and G&SR Chapter XV compliance verification before timetable slot allocation."
+        badges={[
+          { label: `OFFICER: ${state.currentUser.name}`, variant: 'teal' },
+          { label: state.currentUser.role, variant: 'steel' },
+          { label: 'G&SR CHAPTER XV ENFORCED', variant: 'green' },
+          { label: `${pendingRequests.length} PENDING DECISION`, variant: 'amber' },
+        ]}
+        actionSlot={
+          <div className="px-4 py-2 rounded-full bg-white border border-[#E8E6DF] text-xs font-bold text-[#393D3F] flex items-center gap-2 shadow-xs">
+            <ShieldCheck className="w-4 h-4 text-[#16A34A]" />
+            <span>VIGILANCE LOCK ACTIVE</span>
+          </div>
+        }
+        bgMotif="turnout"
+      />
 
       {/* Indian Railways Concurrence & Authorization Lifecycle */}
-      <div className="bg-white border border-railway-border rounded-3xl p-6 sm:p-8 shadow-xs space-y-5">
-        <div className="text-[10px] uppercase font-mono tracking-wider text-railway-textMuted font-bold flex items-center justify-between">
-          <span>INDIAN RAILWAYS BLOCK AUTHORITY & OPERATING PIPELINE</span>
-          <span className="text-railway-forest font-bold">G&SR CHAPTER XV STANDARD DISCIPLINE</span>
+      <div className="bg-white border border-[#E8E6DF] rounded-3xl p-6 sm:p-8 shadow-xs space-y-4">
+        <div className="text-[10px] uppercase font-extrabold tracking-widest text-[#546A7B] flex items-center justify-between">
+          <span>Operating Pipeline Protocol</span>
+          <span className="text-[#16A34A] font-bold">Standard 8-Stage Progression</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 text-xs font-mono">
-          <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col gap-1">
-            <span className="w-5 h-5 rounded-full bg-railway-signalGreen text-white flex items-center justify-center font-bold text-[10px]">1</span>
-            <span className="font-bold text-[10px] leading-tight">SUBMITTED</span>
+          <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col gap-1">
+            <span className="w-5 h-5 rounded-full bg-[#16A34A] text-white flex items-center justify-center font-bold text-[10px]">1</span>
+            <span className="font-extrabold text-[10px] leading-tight">SUBMITTED</span>
             <span className="text-[9px] text-emerald-700 font-sans">Field Requisition</span>
           </div>
 
-          <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col gap-1">
-            <span className="w-5 h-5 rounded-full bg-railway-signalGreen text-white flex items-center justify-center font-bold text-[10px]">2</span>
-            <span className="font-bold text-[10px] leading-tight">DEPT VERIFIED</span>
+          <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col gap-1">
+            <span className="w-5 h-5 rounded-full bg-[#16A34A] text-white flex items-center justify-center font-bold text-[10px]">2</span>
+            <span className="font-extrabold text-[10px] leading-tight">DEPT VERIFIED</span>
             <span className="text-[9px] text-emerald-700 font-sans">Tech & Isolation</span>
           </div>
 
-          <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col gap-1">
-            <span className="w-5 h-5 rounded-full bg-railway-signalGreen text-white flex items-center justify-center font-bold text-[10px]">3</span>
-            <span className="font-bold text-[10px] leading-tight">PLANNING REVIEW</span>
-            <span className="text-[9px] text-emerald-700 font-sans">Planning Officer</span>
+          <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col gap-1">
+            <span className="w-5 h-5 rounded-full bg-[#16A34A] text-white flex items-center justify-center font-bold text-[10px]">3</span>
+            <span className="font-extrabold text-[10px] leading-tight">PLANNING</span>
+            <span className="text-[9px] text-emerald-700 font-sans">Planning Desk</span>
           </div>
 
-          <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col gap-1">
-            <span className="w-5 h-5 rounded-full bg-railway-signalGreen text-white flex items-center justify-center font-bold text-[10px]">4</span>
-            <span className="font-bold text-[10px] leading-tight">OPTIMIZATION</span>
+          <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex flex-col gap-1">
+            <span className="w-5 h-5 rounded-full bg-[#16A34A] text-white flex items-center justify-center font-bold text-[10px]">4</span>
+            <span className="font-extrabold text-[10px] leading-tight">OPTIMIZATION</span>
             <span className="text-[9px] text-emerald-700 font-sans">CP-SAT / CPM</span>
           </div>
 
-          <div className="p-2.5 rounded-2xl bg-sky-50 border border-sky-200 text-sky-900 flex flex-col gap-1">
+          <div className="p-3 rounded-2xl bg-sky-50 border border-sky-200 text-sky-900 flex flex-col gap-1">
             <span className="w-5 h-5 rounded-full bg-sky-600 text-white flex items-center justify-center font-bold text-[10px]">5</span>
-            <span className="font-bold text-[10px] leading-tight">RECOMMENDED</span>
+            <span className="font-extrabold text-[10px] leading-tight">RECOMMENDED</span>
             <span className="text-[9px] text-sky-700 font-sans">Sent to Control</span>
           </div>
 
-          <div className="p-2.5 rounded-2xl bg-purple-50 border border-purple-200 text-purple-900 flex flex-col gap-1">
+          <div className="p-3 rounded-2xl bg-purple-50 border border-purple-200 text-purple-900 flex flex-col gap-1">
             <span className="w-5 h-5 rounded-full bg-purple-700 text-white flex items-center justify-center font-bold text-[10px]">6</span>
-            <span className="font-bold text-[10px] leading-tight">CONTROL REVIEW</span>
+            <span className="font-extrabold text-[10px] leading-tight">CONTROL</span>
             <span className="text-[9px] text-purple-700 font-sans">COA / Operations</span>
           </div>
 
-          <div className="p-2.5 rounded-2xl bg-purple-50 border border-purple-200 text-purple-900 flex flex-col gap-1">
+          <div className="p-3 rounded-2xl bg-purple-50 border border-purple-200 text-purple-900 flex flex-col gap-1">
             <span className="w-5 h-5 rounded-full bg-purple-700 text-white flex items-center justify-center font-bold text-[10px]">7</span>
-            <span className="font-bold text-[10px] leading-tight">AUTHORIZED</span>
+            <span className="font-extrabold text-[10px] leading-tight">AUTHORIZED</span>
             <span className="text-[9px] text-purple-700 font-sans">Operating Consent</span>
           </div>
 
-          <div className="p-2.5 rounded-2xl bg-railway-canvas border border-railway-border text-railway-textSecondary flex flex-col gap-1">
-            <span className="w-5 h-5 rounded-full bg-neutral-300 text-neutral-700 flex items-center justify-center font-bold text-[10px]">8</span>
-            <span className="font-bold text-[10px] leading-tight">SCHEDULED</span>
-            <span className="text-[9px] text-neutral-500 font-sans">Official Block Memo</span>
+          <div className="p-3 rounded-2xl bg-[#F2F2EF] border border-[#E8E6DF] text-[#546A7B] flex flex-col gap-1">
+            <span className="w-5 h-5 rounded-full bg-[#C6C5B9] text-[#393D3F] flex items-center justify-center font-bold text-[10px]">8</span>
+            <span className="font-extrabold text-[10px] leading-tight">SCHEDULED</span>
+            <span className="text-[9px] text-[#546A7B] font-sans">Block Memo</span>
           </div>
         </div>
       </div>
@@ -205,10 +204,10 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
           <button
             key={d}
             onClick={() => setFilterDept(d)}
-            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition ${
+            className={`px-5 py-2 rounded-full text-xs font-bold transition shadow-xs ${
               filterDept === d
-                ? 'bg-railway-forest text-white shadow-xs'
-                : 'bg-white border border-railway-border text-railway-textSecondary hover:bg-railway-canvas'
+                ? 'bg-[#393D3F] text-white'
+                : 'bg-white border border-[#E8E6DF] text-[#546A7B] hover:bg-[#F2F2EF]'
             }`}
           >
             {d === 'ALL' ? 'All Pending Requisitions' : d}

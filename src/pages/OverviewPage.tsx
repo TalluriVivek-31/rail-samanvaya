@@ -1,12 +1,8 @@
-// Operational Home Page — Railway Control Room Command Center
-// South Central Railway · Vijayawada Division · BZA Control
-
 import React from 'react';
 import { useSamnvayStore } from '../store/useSamnvayStore';
 import type { SamnvayPage } from '../types/samnvay';
 import { 
   Inbox, 
-  CheckCircle2, 
   Clock, 
   AlertTriangle, 
   Activity, 
@@ -16,9 +12,14 @@ import {
   Layers,
   ArrowUpRight,
   ShieldCheck,
-  CheckCircle
+  CheckCircle,
+  Plus,
+  Compass,
+  Zap
 } from 'lucide-react';
+import { EditorialHero } from '../components/common/EditorialHero';
 import { NearbyWorkWidget } from '../components/chat/NearbyWorkWidget';
+import { isPendingApproval, isPlanningEligible, isExecutionEligible } from '../utils/requestLifecycle';
 
 interface OverviewPageProps {
   onOpenSectionDrawer?: (sectionId: string) => void;
@@ -32,33 +33,14 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
 }) => {
   const { state } = useSamnvayStore();
 
-  // 1. Dynamic Metric Calculations (Zero hardcoding)
-  const pendingRequests = state.requests.filter(r => 
-    r.status === 'Submitted' || 
-    r.status === 'P.Way/S&T/TRD Review' || 
-    r.status === 'Verified' || 
-    r.status === 'Approval Pending' ||
-    r.status === 'Pending' || 
-    r.status === 'Review' || 
-    r.status === 'Revision' ||
-    r.status === 'Revision Required'
-  );
-  const approvedRequests = state.requests.filter(r => 
-    r.status === 'Approved' || 
-    r.status === 'Planning Queue' || 
-    r.status === 'Block Window Allocated' ||
-    r.status === 'Scheduled' ||
-    r.status === 'Planning'
-  );
+  // Dynamic Metric Calculations from single-source-of-truth state machine
+  const pendingRequests = state.requests.filter(r => isPendingApproval(r));
+  const planningEligible = state.requests.filter(r => isPlanningEligible(r));
+  const executionEligible = state.requests.filter(r => isExecutionEligible(r));
   const activeBlocks = state.executionSteps.filter(s => s.status === 'IN_PROGRESS');
   const unresolvedRequestConflicts = state.requests.filter(r => r.conflict && !r.conflict.isResolved);
   const totalConflicts = unresolvedRequestConflicts.length + state.liveConflicts.length;
-  const scheduledWork = state.requests.filter(r => 
-    r.status === 'Scheduled'
-  );
-  const recommendedWindows = state.requests.filter(r => 
-    r.status === 'Block Window Allocated'
-  );
+  const scheduledWork = state.requests.filter(r => r.status === 'Scheduled');
 
   // Dynamic user permission check
   const userPerms = state.currentUser.permissions || ['overview'];
@@ -68,499 +50,401 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
   const liveTrainsSample = state.liveData.liveTrains.slice(0, 3);
 
   return (
-    <div className="space-y-6 pb-12 animate-fadeIn">
-      {/* 1. Header: Operational Home */}
-      <div className="bg-white rounded-2xl p-6 border border-railway-border shadow-soft flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2 mb-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-            <h1 className="text-2xl font-bold tracking-tight text-railway-textPrimary font-sans">
-              Home
-            </h1>
-          </div>
-          <p className="text-xs font-mono text-railway-textSecondary">
-            Indian Railways · National Network Management
-          </p>
-        </div>
-
-        {/* System & Telemetry Status Indicators */}
-        <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
-          <div className="px-3 py-1 rounded-full border bg-neutral-50 text-neutral-700 border-neutral-200">
-            SYSTEM: <strong className="text-neutral-900">{state.isLiveMode ? 'LIVE' : 'DEMO'}</strong>
-          </div>
-
-          {state.liveData.source === 'LIVE' ? (
-            <div className="px-3 py-1 rounded-full border bg-emerald-50 text-emerald-800 border-emerald-200 flex items-center space-x-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>TRAIN TELEMETRY: <strong>LIVE</strong></span>
-            </div>
-          ) : (
-            <div className="px-3 py-1 rounded-full border bg-amber-50 text-amber-800 border-amber-200 flex items-center space-x-1.5">
-              <span className="w-2 h-2 rounded-full bg-amber-500" />
-              <span>TRAIN TELEMETRY: <strong>{state.isLiveMode ? 'UNAVAILABLE' : 'DEMO'}</strong></span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 2. Top 5 Compact Operational Indicators */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-        {/* Metric 1: Pending Actions */}
-        <div 
-          onClick={() => onNavigate('requests')}
-          className="bg-white border border-railway-border p-4 rounded-xl cursor-pointer hover:border-railway-forest transition shadow-2xs"
-        >
-          <div className="text-[11px] font-mono text-railway-textMuted uppercase font-semibold">
-            Pending Actions
-          </div>
-          <div className="text-2xl font-bold font-mono text-railway-textPrimary mt-1">
-            {pendingRequests.length}
-          </div>
-          <div className="text-[10px] text-railway-textSecondary mt-0.5">
-            {pendingRequests.length === 1 ? '1 requisition awaiting review' : `${pendingRequests.length} requisitions awaiting review`}
-          </div>
-        </div>
-
-        {/* Metric 2: Active Blocks */}
-        <div 
-          onClick={() => onNavigate('execution')}
-          className="bg-white border border-railway-border p-4 rounded-xl cursor-pointer hover:border-railway-forest transition shadow-2xs"
-        >
-          <div className="text-[11px] font-mono text-railway-textMuted uppercase font-semibold">
-            Active Blocks
-          </div>
-          <div className="text-2xl font-bold font-mono text-railway-textPrimary mt-1">
-            {activeBlocks.length}
-          </div>
-          <div className="text-[10px] text-railway-textSecondary mt-0.5">
-            {activeBlocks.length > 0 ? 'Work in progress on track' : 'No blocks currently active'}
-          </div>
-        </div>
-
-        {/* Metric 3: Upcoming Windows */}
-        <div 
-          onClick={() => onNavigate('planning')}
-          className="bg-white border border-railway-border p-4 rounded-xl cursor-pointer hover:border-railway-forest transition shadow-2xs"
-        >
-          <div className="text-[11px] font-mono text-railway-textMuted uppercase font-semibold">
-            Upcoming Windows
-          </div>
-          <div className="text-2xl font-bold font-mono text-railway-textPrimary mt-1">
-            {approvedRequests.length}
-          </div>
-          <div className="text-[10px] text-railway-textSecondary mt-0.5">
-            Nearest usable maintenance slots
-          </div>
-        </div>
-
-        {/* Metric 4: Live Conflicts */}
-        <div 
-          onClick={() => onNavigate('conflict')}
-          className={`bg-white border p-4 rounded-xl cursor-pointer transition shadow-2xs ${
-            totalConflicts > 0 ? 'border-red-300 bg-red-50/20' : 'border-railway-border hover:border-railway-forest'
-          }`}
-        >
-          <div className="text-[11px] font-mono text-railway-textMuted uppercase font-semibold flex items-center justify-between">
-            <span>Live Conflicts</span>
-            {totalConflicts > 0 && <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />}
-          </div>
-          <div className={`text-2xl font-bold font-mono mt-1 ${totalConflicts > 0 ? 'text-red-700' : 'text-railway-textPrimary'}`}>
-            {totalConflicts}
-          </div>
-          <div className="text-[10px] text-railway-textSecondary mt-0.5">
-            {totalConflicts > 0 ? 'Requires controller intervention' : 'Zero headway overlaps'}
-          </div>
-        </div>
-
-        {/* Metric 5: Authorized Scheduled Possessions */}
-        <div 
-          onClick={() => onNavigate('planning')}
-          className="bg-white border border-railway-border p-4 rounded-xl cursor-pointer hover:border-railway-forest transition shadow-2xs col-span-2 sm:col-span-1"
-        >
-          <div className="text-[11px] font-mono text-railway-textMuted uppercase font-semibold">
-            Authorized Blocks
-          </div>
-          <div className="text-2xl font-bold font-mono text-railway-textPrimary mt-1">
-            {scheduledWork.length}
-          </div>
-          <div className="text-[10px] text-railway-textSecondary mt-0.5">
-            {scheduledWork.length === 1 ? '1 scheduled possession' : `${scheduledWork.length} scheduled possessions`}
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Primary Operational Area (Two-Column Layout) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        
-        {/* LEFT COLUMN: ATTENTION REQUIRED */}
-        <div className="bg-white rounded-2xl border border-railway-border p-6 shadow-soft space-y-4">
-          <div className="flex items-center justify-between border-b border-railway-border pb-3">
-            <h2 className="text-base font-bold text-railway-textPrimary font-sans">
-              Attention Required
-            </h2>
-            <span className="text-xs font-mono text-railway-textMuted">
-              {pendingRequests.length + totalConflicts} Item{(pendingRequests.length + totalConflicts) === 1 ? '' : 's'}
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            {pendingRequests.length === 0 && totalConflicts === 0 && approvedRequests.length === 0 ? (
-              <div className="py-8 text-center text-railway-textSecondary text-xs font-mono space-y-1">
-                <CheckCircle className="w-5 h-5 text-emerald-500 mx-auto mb-1.5" />
-                <div className="font-bold">No maintenance requirements pending review</div>
-                <div className="text-[11px] text-neutral-400">Create a maintenance requirement to begin planning.</div>
-              </div>
-            ) : (
-              <>
-                {/* Pending Requisitions */}
-                {pendingRequests.slice(0, 2).map(req => (
-                  <div 
-                    key={req.id} 
-                    className="p-3.5 rounded-xl bg-railway-canvas border border-railway-border flex items-center justify-between gap-3 text-xs"
-                  >
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[10px]">
-                          MAINTENANCE REQUIREMENT
-                        </span>
-                        <span className="font-bold text-railway-textPrimary">{req.id}</span>
-                        <span className="text-railway-textMuted font-mono">({req.department})</span>
-                      </div>
-                      <div className="text-railway-textSecondary mt-1">
-                        {req.work} · Section {req.section} ({req.duration} min)
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => onNavigate('approval')}
-                      className="px-3 py-1.5 rounded-lg bg-white border border-railway-border text-railway-forest font-semibold text-xs hover:bg-neutral-50 shadow-2xs whitespace-nowrap"
-                    >
-                      Review
-                    </button>
-                  </div>
-                ))}
-
-                {/* Live Conflicts */}
-                {unresolvedRequestConflicts.slice(0, 2).map(req => (
-                  <div 
-                    key={`conf-${req.id}`} 
-                    className="p-3.5 rounded-xl bg-red-50/50 border border-red-200 flex items-center justify-between gap-3 text-xs"
-                  >
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded text-[10px]">
-                          LIVE CONFLICT
-                        </span>
-                        <span className="font-bold text-red-900">{req.conflict?.conflictingTrain}</span>
-                      </div>
-                      <div className="text-red-800 text-[11px] mt-1">
-                        Conflicts with planned window {req.allocatedWindow?.startTime}–{req.allocatedWindow?.endTime} on Section {req.section}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => onNavigate('conflict')}
-                      className="px-3 py-1.5 rounded-lg bg-red-600 text-white font-semibold text-xs hover:bg-red-700 shadow-2xs whitespace-nowrap"
-                    >
-                      Resolve
-                    </button>
-                  </div>
-                ))}
-
-                {/* Ready for Planning */}
-                {approvedRequests.length > 0 && (
-                  <div className="p-3.5 rounded-xl bg-blue-50/50 border border-blue-200 flex items-center justify-between gap-3 text-xs">
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-[10px]">
-                          PLANNING
-                        </span>
-                        <span className="font-bold text-blue-950">Timetable Optimization</span>
-                      </div>
-                      <div className="text-blue-800 text-[11px] mt-1">
-                        {approvedRequests.length} approved requisitions ready for schedule allocation
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => onNavigate('planning')}
-                      className="px-3 py-1.5 rounded-lg bg-white border border-blue-200 text-blue-800 font-semibold text-xs hover:bg-blue-50 shadow-2xs whitespace-nowrap"
-                    >
-                      Open Planning
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: CORRIDOR OPERATIONS STATUS */}
-        <div className="bg-white rounded-2xl border border-railway-border p-6 shadow-soft space-y-4">
-          <div className="flex items-center justify-between border-b border-railway-border pb-3">
-            <h2 className="text-base font-bold text-railway-textPrimary font-sans">
-              Corridor Operations Status
-            </h2>
-            <button 
-              onClick={() => onNavigate('live-trains')}
-              className="text-xs font-semibold text-railway-forest hover:underline flex items-center gap-1"
-            >
-              <span>View Live Trains</span>
-              <ArrowUpRight className="w-3 h-3" />
-            </button>
-          </div>
-
-          {/* Compact Corridor Station Summary */}
-          <div 
-            onClick={() => onNavigate('live-trains')}
-            className="p-4 rounded-xl bg-railway-canvas border border-railway-border cursor-pointer hover:border-railway-forest transition space-y-3"
-          >
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="font-bold text-railway-textPrimary">Configured Prototype Corridor (BZA–GNT–TEL)</span>
-              <span className="text-[10px] text-emerald-700 font-semibold">AUTOMATIC BLOCK</span>
-            </div>
-
-            {/* Line schematic */}
-            <div className="py-2 flex items-center justify-between text-[10px] font-mono text-railway-textSecondary relative">
-              <div className="absolute left-2 right-2 top-1/2 -translate-y-1/2 h-0.5 bg-neutral-300 -z-0" />
-              {['BZA', 'KCC', 'MAG', 'NBR', 'GNT', 'TEL'].map((stn, idx) => (
-                <div key={stn} className="flex flex-col items-center relative z-10">
-                  <span className={`w-2 h-2 rounded-full ${idx === 2 ? 'bg-amber-500' : 'bg-railway-forest'}`} />
-                  <span className="text-[9px] font-bold text-railway-textPrimary mt-1">{stn}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-railway-border/60 text-xs font-mono text-railway-textSecondary">
-              <span><strong>{activeBlocks.length}</strong> Active Work</span>
-              <span>•</span>
-              <span><strong>{approvedRequests.length}</strong> Windows Ready</span>
-              <span>•</span>
-              <span className={totalConflicts > 0 ? 'text-red-600 font-bold' : ''}>
-                <strong>{totalConflicts}</strong> Conflict{totalConflicts === 1 ? '' : 's'}
-              </span>
-            </div>
-          </div>
-
-          <div className="text-[11px] font-mono text-railway-textMuted flex items-center justify-between">
-            <span>Sections: SEC-A, SEC-B, SEC-C</span>
-            <span>Speed Class: Group A (130 km/h)</span>
-          </div>
-        </div>
-
-      </div>
-
-      {/* 4. Upcoming Maintenance & Live Train Movement */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        
-        {/* UPCOMING MAINTENANCE (2 Cols) */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-railway-border p-6 shadow-soft space-y-4">
-          <div className="flex items-center justify-between border-b border-railway-border pb-3">
-            <div>
-              <h2 className="text-base font-bold text-railway-textPrimary font-sans">
-                Upcoming Maintenance
-              </h2>
-            </div>
-            <button 
-              onClick={() => onNavigate('requests')}
-              className="text-xs font-semibold text-railway-forest hover:underline flex items-center gap-1"
-            >
-              <span>All Requests</span>
-              <ArrowRight className="w-3 h-3" />
-            </button>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead>
-                <tr className="border-b border-railway-border text-railway-textMuted text-[10px] uppercase tracking-wider">
-                  <th className="pb-2">Work Requisition</th>
-                  <th className="pb-2">Dept</th>
-                  <th className="pb-2">Section</th>
-                  <th className="pb-2">Time Window</th>
-                  <th className="pb-2 text-right">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-railway-border/50">
-                {scheduledWork.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-railway-textMuted text-xs font-mono">
-                      <div className="font-bold text-neutral-600">No scheduled blocks</div>
-                    </td>
-                  </tr>
-                ) : (
-                  scheduledWork.slice(0, 4).map(r => (
-                    <tr 
-                      key={r.id}
-                      onClick={() => onNavigate('requests')}
-                      className="hover:bg-railway-canvas/60 cursor-pointer transition-colors"
-                    >
-                      <td className="py-2.5 font-bold text-railway-textPrimary">
-                        {r.work}
-                      </td>
-                      <td className="py-2.5 text-railway-textSecondary">
-                        {r.department}
-                      </td>
-                      <td className="py-2.5 font-mono text-railway-textSecondary">
-                        {r.section}
-                      </td>
-                      <td className="py-2.5 font-mono text-railway-textPrimary">
-                        {r.allocatedWindow?.startTime}–{r.allocatedWindow?.endTime}
-                      </td>
-                      <td className="py-2.5 text-right">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          {r.status.toUpperCase()}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* LIVE TRAIN MOVEMENT (1 Col) */}
-        <div className="bg-white rounded-2xl border border-railway-border p-6 shadow-soft space-y-4">
-          <div className="flex items-center justify-between border-b border-railway-border pb-3">
-            <div>
-              <h2 className="text-base font-bold text-railway-textPrimary font-sans">
-                Live Train Movement
-              </h2>
-            </div>
-            <button 
-              onClick={() => onNavigate('live-trains')}
-              className="text-xs font-semibold text-railway-forest hover:underline flex items-center gap-1"
-            >
-              <span>View Live Trains →</span>
-            </button>
-          </div>
-
-          <div className="space-y-2.5">
-            {liveTrainsSample.length === 0 ? (
-              <div className="py-6 text-center text-railway-textMuted text-xs font-mono">
-                No live data available
-              </div>
-            ) : (
-              liveTrainsSample.map(t => (
-                <div 
-                  key={t.trainNumber}
-                  onClick={() => onNavigate('live-trains')}
-                  className="p-3 rounded-xl bg-railway-canvas border border-railway-border/80 cursor-pointer hover:border-railway-forest transition text-xs font-mono space-y-1.5"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-railway-textPrimary">{t.trainNumber} {t.trainName}</span>
-                    <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                      t.delayMinutes === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                    }`}>
-                      {t.delayMinutes === 0 ? 'RT' : `+${t.delayMinutes}m`}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-railway-textSecondary">
-                    <span>Pos: KM {typeof t.currentKm === 'number' ? t.currentKm.toFixed(1) : t.currentKm}</span>
-                    <span>Speed: {t.speedKmph} km/h</span>
-                    <span className="text-[10px] text-emerald-700 font-bold">{state.liveData.source}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-      </div>
-
-      {/* 5. Planning Status & Quick Action Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        
-        {/* PLANNING STATUS */}
-        <div className="bg-white rounded-2xl border border-railway-border p-5 shadow-soft flex items-center justify-between">
-          <div className="space-y-0.5">
-            <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-railway-textMuted">
-              Planning Status
-            </h3>
-            <p className="text-xs text-railway-textSecondary">Divisional constraint solver outputs</p>
-          </div>
-          <div className="flex items-center space-x-6 text-xs font-mono">
-            <div className="text-center">
-              <div className="text-base font-bold text-railway-textPrimary">{approvedRequests.length}</div>
-              <div className="text-[10px] text-railway-textMuted">Approved</div>
-            </div>
-            <div className="text-center">
-              <div className="text-base font-bold text-railway-textPrimary">{state.sections.length}</div>
-              <div className="text-[10px] text-railway-textMuted">Feasible Windows</div>
-            </div>
-            <div className="text-center">
-              <div className="text-base font-bold text-railway-textPrimary">{state.spatialOverlaps.length}</div>
-              <div className="text-[10px] text-railway-textMuted">Coordinated</div>
-            </div>
-            <div className="text-center">
-              <div className={`text-base font-bold ${totalConflicts > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
-                {totalConflicts}
-              </div>
-              <div className="text-[10px] text-railway-textMuted">Conflicts</div>
-            </div>
-          </div>
-        </div>
-
-        {/* NEARBY WORK IDENTIFICATION & JOINT CO-LOCATION COORDINATION */}
-        <NearbyWorkWidget />
-
-        {/* QUICK ACTIONS */}
-        <div className="bg-white rounded-2xl border border-railway-border p-5 shadow-soft flex items-center justify-between">
-          <div className="space-y-0.5">
-            <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-railway-textMuted">
-              Quick Actions
-            </h3>
-            <p className="text-xs text-railway-textSecondary">Permitted for {state.currentUser.role}</p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-6 pb-12">
+      {/* 1. Master Editorial Hero Banner */}
+      <EditorialHero
+        category="Vijayawada Division · SCR Control Office"
+        titleLines={['OPERATIONS', 'WITHOUT', 'CONFLICT']}
+        subtitle="Automated railway maintenance possession planning, intelligent timetable path optimization, and real-time live corridor telemetry."
+        badges={[
+          { label: 'BZA–TEL CORRIDOR', variant: 'teal' },
+          { label: 'CP-SAT OPTIMIZER ACTIVE', variant: 'green' },
+          { label: 'G&SR CHAPTER XV COMPLIANT', variant: 'steel' },
+          { label: state.isLiveMode ? 'LIVE TELEMETRY' : 'DEMO MODE', variant: state.isLiveMode ? 'green' : 'amber' },
+        ]}
+        actionSlot={
+          <div className="flex items-center gap-2.5">
             {hasPerm('requests') && onOpenCreateModal && (
               <button
                 onClick={onOpenCreateModal}
-                className="px-3 py-1.5 rounded-lg bg-railway-forest text-white text-xs font-semibold hover:bg-railway-forestHover transition shadow-2xs"
+                className="flex items-center space-x-2 px-5 py-3 rounded-full bg-[#393D3F] text-white text-xs font-bold hover:bg-[#546A7B] transition shadow-sm"
               >
-                Create Request
+                <Plus className="w-4 h-4 text-[#62929E]" />
+                <span>RAISE REQUISITION</span>
               </button>
             )}
+            <button
+              onClick={() => onNavigate('planning')}
+              className="flex items-center space-x-2 px-4 py-3 rounded-full bg-white border border-[#E8E6DF] text-[#393D3F] text-xs font-bold hover:bg-[#F2F2EF] transition shadow-xs"
+            >
+              <Zap className="w-3.5 h-3.5 text-[#F59E0B]" />
+              <span>BLOCK PLANNER</span>
+            </button>
+          </div>
+        }
+        bgMotif="turnout"
+      />
 
-            {hasPerm('planning') && (
-              <button
-                onClick={() => onNavigate('planning')}
-                className="px-3 py-1.5 rounded-lg bg-white border border-railway-border text-railway-textPrimary text-xs font-semibold hover:bg-neutral-50 transition shadow-2xs"
-              >
-                Open Planning
-              </button>
-            )}
-
-            {hasPerm('communication') && (
-              <button
-                onClick={() => onNavigate('communication')}
-                className="px-3 py-1.5 rounded-lg bg-white border border-railway-border text-railway-textPrimary text-xs font-semibold hover:bg-neutral-50 transition shadow-2xs"
-              >
-                Communication
-              </button>
-            )}
-
-            {hasPerm('live-trains') && (
-              <button
-                onClick={() => onNavigate('live-trains')}
-                className="px-3 py-1.5 rounded-lg bg-white border border-railway-border text-railway-textPrimary text-xs font-semibold hover:bg-neutral-50 transition shadow-2xs"
-              >
-                Live Trains
-              </button>
-            )}
-
-            {hasPerm('conflict') && (
-              <button
-                onClick={() => onNavigate('conflict')}
-                className="px-3 py-1.5 rounded-lg bg-white border border-railway-border text-railway-textPrimary text-xs font-semibold hover:bg-neutral-50 transition shadow-2xs"
-              >
-                Conflicts
-              </button>
-            )}
+      {/* 2. Top Dynamic Metric Cards Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        {/* Metric 1: Pending Approvals */}
+        <div 
+          onClick={() => onNavigate('approval')}
+          className="bg-white border border-[#E8E6DF] p-5 rounded-3xl cursor-pointer hover:border-[#F59E0B] transition-all shadow-xs group"
+        >
+          <div className="flex items-center justify-between text-[11px] font-extrabold uppercase tracking-wider text-[#546A7B]">
+            <span>Pending Approvals</span>
+            <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
+          </div>
+          <div className="text-3xl font-extrabold text-[#393D3F] mt-2 group-hover:text-[#F59E0B] transition-colors">
+            {pendingRequests.length}
+          </div>
+          <div className="text-xs text-[#546A7B] mt-1 font-medium">
+            {pendingRequests.length === 1 ? '1 awaiting clearance' : `${pendingRequests.length} awaiting clearance`}
           </div>
         </div>
 
+        {/* Metric 2: Ready for Planning */}
+        <div 
+          onClick={() => onNavigate('planning')}
+          className="bg-white border border-[#E8E6DF] p-5 rounded-3xl cursor-pointer hover:border-[#62929E] transition-all shadow-xs group"
+        >
+          <div className="flex items-center justify-between text-[11px] font-extrabold uppercase tracking-wider text-[#546A7B]">
+            <span>Planning Queue</span>
+            <span className="w-2 h-2 rounded-full bg-[#62929E]" />
+          </div>
+          <div className="text-3xl font-extrabold text-[#393D3F] mt-2 group-hover:text-[#62929E] transition-colors">
+            {planningEligible.length}
+          </div>
+          <div className="text-xs text-[#546A7B] mt-1 font-medium">
+            {planningEligible.length === 1 ? '1 slot to optimize' : `${planningEligible.length} slots to optimize`}
+          </div>
+        </div>
+
+        {/* Metric 3: Active Blocks on Track */}
+        <div 
+          onClick={() => onNavigate('execution')}
+          className="bg-white border border-[#E8E6DF] p-5 rounded-3xl cursor-pointer hover:border-[#16A34A] transition-all shadow-xs group"
+        >
+          <div className="flex items-center justify-between text-[11px] font-extrabold uppercase tracking-wider text-[#546A7B]">
+            <span>Active Possessions</span>
+            <span className="w-2 h-2 rounded-full bg-[#16A34A] animate-pulse" />
+          </div>
+          <div className="text-3xl font-extrabold text-[#393D3F] mt-2 group-hover:text-[#16A34A] transition-colors">
+            {activeBlocks.length}
+          </div>
+          <div className="text-xs text-[#546A7B] mt-1 font-medium">
+            {activeBlocks.length > 0 ? 'Work currently in progress' : 'Track currently clear'}
+          </div>
+        </div>
+
+        {/* Metric 4: Headway Conflicts */}
+        <div 
+          onClick={() => onNavigate('conflict')}
+          className={`bg-white border p-5 rounded-3xl cursor-pointer transition-all shadow-xs group ${
+            totalConflicts > 0 ? 'border-red-300 bg-red-50/20 hover:border-red-500' : 'border-[#E8E6DF] hover:border-[#393D3F]'
+          }`}
+        >
+          <div className="flex items-center justify-between text-[11px] font-extrabold uppercase tracking-wider text-[#546A7B]">
+            <span>Conflict Radar</span>
+            {totalConflicts > 0 ? (
+              <span className="w-2.5 h-2.5 rounded-full bg-[#DC2626] animate-ping" />
+            ) : (
+              <span className="w-2 h-2 rounded-full bg-[#16A34A]" />
+            )}
+          </div>
+          <div className={`text-3xl font-extrabold mt-2 ${totalConflicts > 0 ? 'text-[#DC2626]' : 'text-[#393D3F]'}`}>
+            {totalConflicts}
+          </div>
+          <div className="text-xs text-[#546A7B] mt-1 font-medium">
+            {totalConflicts > 0 ? 'Controller action required' : 'Zero headway overlaps'}
+          </div>
+        </div>
+
+        {/* Metric 5: Live Corridor Trains */}
+        <div 
+          onClick={() => onNavigate('live-trains')}
+          className="bg-white border border-[#E8E6DF] p-5 rounded-3xl cursor-pointer hover:border-[#546A7B] transition-all shadow-xs col-span-2 sm:col-span-1 group"
+        >
+          <div className="flex items-center justify-between text-[11px] font-extrabold uppercase tracking-wider text-[#546A7B]">
+            <span>Live Trains</span>
+            <span className="w-2 h-2 rounded-full bg-[#546A7B]" />
+          </div>
+          <div className="text-3xl font-extrabold text-[#393D3F] mt-2 group-hover:text-[#546A7B] transition-colors">
+            {state.liveData.liveTrains.length}
+          </div>
+          <div className="text-xs text-[#546A7B] mt-1 font-medium">
+            {state.liveData.source === 'LIVE' ? 'Realtime RailRadar feed' : 'Divisional timetable'}
+          </div>
+        </div>
       </div>
 
+      {/* 3. Primary Operations Grid (Asymmetric Editorial Layout) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left 7 Columns: Actionable Operations Board */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* Card: Operational Priority / Attention Required */}
+          <div className="bg-white rounded-3xl border border-[#E8E6DF] p-6 shadow-sm">
+            <div className="flex items-center justify-between border-b border-[#E8E6DF] pb-4 mb-4">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#546A7B]">
+                  Action Matrix
+                </span>
+                <h2 className="text-lg font-extrabold text-[#393D3F]">
+                  Operational Priority Items
+                </h2>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-[#F2F2EF] text-[#546A7B] border border-[#E8E6DF]">
+                {pendingRequests.length + totalConflicts} Actionable
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              {pendingRequests.length === 0 && totalConflicts === 0 && planningEligible.length === 0 ? (
+                <div className="py-10 text-center text-[#546A7B] text-xs font-medium space-y-2">
+                  <CheckCircle className="w-8 h-8 text-[#16A34A] mx-auto mb-1" />
+                  <div className="font-extrabold text-sm text-[#393D3F]">All Corridor Channels Clear</div>
+                  <div className="text-xs text-[#546A7B]">No maintenance requests awaiting clearance or conflicting with traffic.</div>
+                </div>
+              ) : (
+                <>
+                  {/* Pending Clearances */}
+                  {pendingRequests.slice(0, 3).map(req => (
+                    <div 
+                      key={req.id} 
+                      className="p-4 rounded-2xl bg-[#F2F2EF] border border-[#E8E6DF] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs hover:border-[#F59E0B] transition group"
+                    >
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-extrabold text-[#F59E0B] bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200 text-[10px] uppercase">
+                            APPROVAL REQUIRED
+                          </span>
+                          <span className="font-extrabold text-[#393D3F]">{req.id}</span>
+                          <span className="font-semibold text-[#546A7B]">· {req.department}</span>
+                        </div>
+                        <div className="text-[#393D3F] font-semibold mt-1.5">
+                          {req.work}
+                        </div>
+                        <div className="text-[#546A7B] text-[11px] mt-0.5">
+                          Section {req.section} · Required {req.duration} min
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onNavigate('approval')}
+                        className="self-start sm:self-center px-4 py-2 rounded-full bg-white border border-[#E8E6DF] text-[#393D3F] font-bold text-xs hover:bg-[#393D3F] hover:text-white transition shadow-xs whitespace-nowrap"
+                      >
+                        Review Clearance
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* Live Conflicts */}
+                  {unresolvedRequestConflicts.slice(0, 2).map(req => (
+                    <div 
+                      key={`conf-${req.id}`} 
+                      className="p-4 rounded-2xl bg-red-50/40 border border-red-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                    >
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-extrabold text-red-700 bg-red-100 px-2.5 py-0.5 rounded-full text-[10px] uppercase">
+                            HEADWAY CONFLICT
+                          </span>
+                          <span className="font-extrabold text-red-950">{req.conflict?.conflictingTrain}</span>
+                        </div>
+                        <div className="text-red-900 font-semibold text-xs mt-1.5">
+                          Overlaps window {req.allocatedWindow?.startTime}–{req.allocatedWindow?.endTime} on Section {req.section}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onNavigate('conflict')}
+                        className="self-start sm:self-center px-4 py-2 rounded-full bg-[#DC2626] text-white font-bold text-xs hover:bg-red-700 transition shadow-xs whitespace-nowrap"
+                      >
+                        Resolve Path
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Card: Scheduled Track Possessions */}
+          <div className="bg-white rounded-3xl border border-[#E8E6DF] p-6 shadow-sm">
+            <div className="flex items-center justify-between border-b border-[#E8E6DF] pb-4 mb-4">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#546A7B]">
+                  Authorized Work
+                </span>
+                <h2 className="text-lg font-extrabold text-[#393D3F]">
+                  Scheduled Maintenance Possessions
+                </h2>
+              </div>
+              <button 
+                onClick={() => onNavigate('requests')}
+                className="text-xs font-bold text-[#546A7B] hover:text-[#393D3F] flex items-center gap-1 transition"
+              >
+                <span>All Requests</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-[#E8E6DF] text-[#546A7B] text-[10px] font-extrabold uppercase tracking-wider">
+                    <th className="pb-3">Work Requisition</th>
+                    <th className="pb-3">Dept</th>
+                    <th className="pb-3">Section</th>
+                    <th className="pb-3">Possession Slot</th>
+                    <th className="pb-3 text-right">Lifecycle</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E8E6DF]/60">
+                  {scheduledWork.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-[#546A7B] text-xs font-medium">
+                        No possession slots currently locked. Allocate windows in the Planning Engine.
+                      </td>
+                    </tr>
+                  ) : (
+                    scheduledWork.slice(0, 4).map(r => (
+                      <tr 
+                        key={r.id}
+                        onClick={() => onNavigate('requests')}
+                        className="hover:bg-[#F2F2EF]/60 cursor-pointer transition-colors"
+                      >
+                        <td className="py-3 font-bold text-[#393D3F]">
+                          {r.work}
+                        </td>
+                        <td className="py-3 text-[#546A7B] font-semibold">
+                          {r.department}
+                        </td>
+                        <td className="py-3 font-mono font-bold text-[#393D3F]">
+                          {r.section}
+                        </td>
+                        <td className="py-3 font-mono text-[#393D3F]">
+                          {r.allocatedWindow?.startTime}–{r.allocatedWindow?.endTime}
+                        </td>
+                        <td className="py-3 text-right">
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            {r.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Right 5 Columns: Corridor HUD & Live Telemetry */}
+        <div className="lg:col-span-5 space-y-6">
+          {/* Card: Corridor Topology & Health */}
+          <div className="bg-white rounded-3xl border border-[#E8E6DF] p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-[#E8E6DF] pb-3">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#546A7B]">
+                  Corridor Topology
+                </span>
+                <h3 className="text-base font-extrabold text-[#393D3F]">
+                  BZA–GNT–TEL Prototype
+                </h3>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#16A34A]/10 text-[#16A34A] border border-[#16A34A]/20">
+                ABS ACTIVE
+              </span>
+            </div>
+
+            {/* Line schematic */}
+            <div className="p-4 rounded-2xl bg-[#F2F2EF] border border-[#E8E6DF] space-y-3">
+              <div className="flex items-center justify-between text-xs font-semibold text-[#546A7B]">
+                <span>Corridor Stations</span>
+                <span className="font-mono text-[11px] text-[#393D3F]">Speed: 130 km/h</span>
+              </div>
+
+              <div className="py-3 flex items-center justify-between relative">
+                <div className="absolute left-2 right-2 top-1/2 -translate-y-1/2 h-0.5 bg-[#C6C5B9]" />
+                {['BZA', 'KCC', 'MAG', 'NBR', 'GNT', 'TEL'].map((stn, idx) => (
+                  <div key={stn} className="flex flex-col items-center relative z-10">
+                    <span className={`w-2.5 h-2.5 rounded-full ${idx === 2 ? 'bg-[#F59E0B]' : 'bg-[#393D3F]'}`} />
+                    <span className="text-[10px] font-extrabold text-[#393D3F] mt-1.5">{stn}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-2 border-t border-[#E8E6DF] flex items-center justify-between text-xs font-bold text-[#546A7B]">
+                <span>{activeBlocks.length} Active Work</span>
+                <span>•</span>
+                <span>{planningEligible.length} In Queue</span>
+                <span>•</span>
+                <span className={totalConflicts > 0 ? 'text-[#DC2626]' : ''}>
+                  {totalConflicts} Conflicts
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Card: Live Train Movement Stream */}
+          <div className="bg-white rounded-3xl border border-[#E8E6DF] p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-[#E8E6DF] pb-3">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#546A7B]">
+                  Live Stream
+                </span>
+                <h3 className="text-base font-extrabold text-[#393D3F]">
+                  Corridor Movements
+                </h3>
+              </div>
+              <button 
+                onClick={() => onNavigate('live-trains')}
+                className="text-xs font-bold text-[#546A7B] hover:text-[#393D3F] flex items-center gap-1 transition"
+              >
+                <span>Operational Map</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {liveTrainsSample.length === 0 ? (
+                <div className="py-8 text-center text-[#546A7B] text-xs font-medium">
+                  Awaiting train position data from RailRadar telemetry feed.
+                </div>
+              ) : (
+                liveTrainsSample.map(t => (
+                  <div 
+                    key={t.trainNumber}
+                    onClick={() => onNavigate('live-trains')}
+                    className="p-3.5 rounded-2xl bg-[#F2F2EF] border border-[#E8E6DF] cursor-pointer hover:border-[#62929E] transition space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-xs text-[#393D3F]">
+                        {t.trainNumber} {t.trainName}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold font-mono ${
+                        t.delayMinutes === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {t.delayMinutes === 0 ? 'ON TIME' : `+${t.delayMinutes}m`}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-[#546A7B]">
+                      <span>Chainage: KM {typeof t.currentKm === 'number' ? t.currentKm.toFixed(1) : t.currentKm}</span>
+                      <span>Speed: {t.speedKmph} km/h</span>
+                      <span className="text-[10px] font-mono text-[#16A34A]">{state.liveData.source}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Joint Work & Co-location Nearby Widget */}
+          <div className="bg-white rounded-3xl border border-[#E8E6DF] p-6 shadow-sm">
+            <NearbyWorkWidget />
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

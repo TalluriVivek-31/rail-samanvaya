@@ -426,8 +426,8 @@ export const ApprovalQueuePage: React.FC<ApprovalQueuePageProps> = ({ onNavigate
                         <span className="text-[10px] font-mono text-railway-textMuted">Evaluated for Operating Concurrence</span>
                       </div>
 
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs font-mono">
+                      <div className="overflow-x-auto -mx-1 px-1">
+                        <table className="w-full min-w-[480px] text-left text-xs font-mono">
                           <thead>
                             <tr className="border-b border-neutral-200 text-neutral-400 text-[10px] uppercase">
                               <th className="pb-2">Requirement</th>

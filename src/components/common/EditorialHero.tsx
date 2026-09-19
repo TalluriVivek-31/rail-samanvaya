@@ -7,7 +7,7 @@ interface EditorialHeroProps {
   subtitle?: string;
   badges?: Array<{
     label: string;
-    variant?: 'teal' | 'green' | 'amber' | 'violet' | 'dark' | 'steel';
+    variant?: 'teal' | 'green' | 'amber' | 'violet' | 'dark' | 'steel' | 'rose';
   }>;
   actionSlot?: React.ReactNode;
   bgMotif?: 'grid' | 'turnout' | 'none';
@@ -21,6 +21,7 @@ const variantStyles: Record<string, string> = {
   violet: 'bg-[#6D5DF5]/15 text-[#3b2fc9] border-[#6D5DF5]/30',
   dark: 'bg-[#393D3F]/10 text-[#393D3F] border-[#393D3F]/20',
   steel: 'bg-[#546A7B]/15 text-[#2b3a44] border-[#546A7B]/30',
+  rose: 'bg-[#E11D48]/15 text-[#881337] border-[#E11D48]/30',
 };
 
 export const EditorialHero: React.FC<EditorialHeroProps> = ({

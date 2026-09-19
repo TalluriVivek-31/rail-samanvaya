@@ -50,8 +50,8 @@ interface CreateRequestModalProps {
 export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, onClose }) => {
   const { state, createRequest } = useSamnvayStore();
 
-  // Exactly 5 Steps: 1 (Work) -> 2 (Location) -> 3 (Infrastructure) -> 4 (Duration & Resources) -> 5 (Train Intelligence & Submit)
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  // Exactly 4 Steps: 1 (Work) -> 2 (Location) -> 3 (Duration & Resources) -> 4 (Train Intelligence & Submit)
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
 
   // STEP 1: WORK DEFINITION
   const [department, setDepartment] = useState<Department>('P.Way');
@@ -187,8 +187,8 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
       }
     }
   }, [preferredStartTime, durationMinutes]);
-  // Candidate Planning Windows for Step 5
-  const step5Analysis = useMemo(() => {
+  // Candidate Planning Windows for Step 4
+  const step4Analysis = useMemo(() => {
     if (!locationResult.isValid) return null;
     return analyzeLocationTrainConflicts(
       locationResult.startKmDecimal,
@@ -394,10 +394,10 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
           </div>
 
           <div className="flex items-center space-x-3">
-            {/* 5 Step Indicators */}
+            {/* 4 Step Indicators */}
             {!submittedId && (
               <div className="hidden sm:flex items-center space-x-1.5 text-xs font-mono">
-                {[1, 2, 3, 4, 5].map((stepNum) => (
+                {[1, 2, 3, 4].map((stepNum) => (
                   <div
                     key={stepNum}
                     onClick={() => {
@@ -492,7 +492,7 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                 <div className="space-y-5 animate-in fade-in duration-150">
                   <div className="border-b border-railway-border pb-3">
                     <span className="text-[10px] font-mono font-bold uppercase text-railway-forest bg-railway-forest/10 px-2.5 py-0.5 rounded-full">
-                      STEP 1 OF 5 · WORK DEFINITION
+                      STEP 1 OF 4 · WORK DEFINITION
                     </span>
                     <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
                       Work Details & Defect Specification
@@ -667,7 +667,7 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                 <div className="space-y-5 animate-in fade-in duration-150">
                   <div className="border-b border-railway-border pb-3">
                     <span className="text-[10px] font-mono font-bold uppercase text-railway-forest bg-railway-forest/10 px-2.5 py-0.5 rounded-full">
-                      STEP 2 OF 5 · EXACT RAILWAY LOCATION
+                      STEP 2 OF 4 · EXACT RAILWAY LOCATION
                     </span>
                     <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
                       Identify Location, Station & Track Infrastructure
@@ -914,160 +914,6 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                       onClick={() => setCurrentStep(3)}
                       className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-railway-forest hover:bg-railway-forestDark text-white text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
                     >
-                      <span>Proceed to Affected Infrastructure</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* ========================================================================= */}
-              {/* STEP 3: Affected Infrastructure & Proximity Discovery                      */}
-              {/* ========================================================================= */}
-              {currentStep === 3 && (
-                <div className="space-y-5 animate-in fade-in duration-150">
-                  <div className="border-b border-railway-border pb-3">
-                    <span className="text-[10px] font-mono font-bold uppercase text-railway-forest bg-railway-forest/10 px-2.5 py-0.5 rounded-full">
-                      STEP 3 OF 5 · AFFECTED INFRASTRUCTURE
-                    </span>
-                    <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
-                      Discovered Fixed Assets & Corridor Proximity Classification
-                    </h4>
-                    <p className="text-xs text-railway-textSecondary mt-0.5">
-                      Fixed assets detected on {formatRailwayKm(locationResult.startKmDecimal)} – {formatRailwayKm(locationResult.endKmDecimal)} ({locationResult.affectedLengthMeters}m).
-                    </p>
-                  </div>
-
-                  {/* Department Summary Cards */}
-                  <div className="grid grid-cols-3 gap-3 text-xs font-mono">
-                    <div className="p-3 rounded-2xl bg-railway-canvas border border-railway-border flex items-center space-x-3">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
-                        <Hammer className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-railway-textMuted uppercase">P.Way Assets</div>
-                        <div className="font-bold text-railway-textPrimary text-sm">
-                          {locationResult.affectedAssets.all.filter(a => a.department === 'P.Way').length} in Scope
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="p-3 rounded-2xl bg-railway-canvas border border-railway-border flex items-center space-x-3">
-                      <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
-                        <Radio className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-railway-textMuted uppercase">S&T Interlocking</div>
-                        <div className="font-bold text-railway-textPrimary text-sm">
-                          {locationResult.affectedAssets.all.filter(a => a.department === 'S&T').length} Assets
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="p-3 rounded-2xl bg-railway-canvas border border-railway-border flex items-center space-x-3">
-                      <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
-                        <Zap className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-railway-textMuted uppercase">TRD Electrification</div>
-                        <div className="font-bold text-railway-textPrimary text-sm">
-                          {locationResult.affectedAssets.all.filter(a => a.department === 'TRD').length} Masts/Feeds
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Discovered Assets List */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-railway-textSecondary font-mono uppercase">
-                        Discovered Infrastructure Assets ({locationResult.affectedAssets.all.length} Total)
-                      </label>
-                      <span className="text-[10px] font-mono text-railway-textMuted">
-                        Auto-classified: WITHIN_RANGE · INTERSECTS_RANGE · NEARBY
-                      </span>
-                    </div>
-
-                    <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
-                      {locationResult.affectedAssets.all.length === 0 ? (
-                        <div className="p-4 rounded-2xl bg-neutral-50 border border-railway-border text-center text-xs text-neutral-500 font-mono">
-                          No specialized fixed infrastructure registered in this specific chainage span. Plain track section.
-                        </div>
-                      ) : (
-                        locationResult.affectedAssets.all.map((asset) => {
-                          const isWithin = asset.proximity === 'WITHIN_RANGE' || !asset.proximity;
-                          const isIntersects = asset.proximity === 'INTERSECTS_RANGE';
-
-                          return (
-                            <div
-                              key={asset.assetId}
-                              className={`p-3 rounded-2xl border flex items-center justify-between text-xs font-mono transition ${
-                                isWithin
-                                  ? 'bg-emerald-50/50 border-emerald-300'
-                                  : isIntersects
-                                  ? 'bg-sky-50/50 border-sky-300'
-                                  : 'bg-amber-50/40 border-amber-300'
-                              }`}
-                            >
-                              <div className="flex items-center space-x-3">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                  asset.department === 'P.Way' ? 'bg-emerald-100 text-emerald-800' :
-                                  asset.department === 'S&T' ? 'bg-blue-100 text-blue-800' :
-                                  'bg-amber-100 text-amber-800'
-                                }`}>
-                                  {asset.department}
-                                </span>
-                                <div>
-                                  <div className="font-bold text-railway-textPrimary flex items-center gap-1.5">
-                                    <span>{asset.assetId} · {asset.name}</span>
-                                  </div>
-                                  <div className="text-[10px] text-neutral-500">
-                                    {asset.assetType} · Track: {asset.trackName} · Chainage: {asset.kmDisplay}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="text-right">
-                                {isWithin ? (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white shadow-2xs">
-                                    WITHIN_RANGE (0m)
-                                  </span>
-                                ) : isIntersects ? (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-300">
-                                    INTERSECTS_RANGE
-                                  </span>
-                                ) : (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                                    NEARBY (+{asset.distanceMeters ?? Math.round(Math.abs(asset.km - locationResult.startKmDecimal) * 1000)}m)
-                                  </span>
-                                )}
-                                <div className="text-[10px] text-neutral-400 mt-0.5">
-                                  {asset.status}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Navigation Actions */}
-                  <div className="pt-4 border-t border-railway-border flex items-center justify-between">
-                    <button
-                      type="button"
-                      onClick={() => setCurrentStep(2)}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-railway-border text-xs text-railway-textSecondary hover:text-railway-textPrimary transition cursor-pointer"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Back to Location</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setCurrentStep(4)}
-                      className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-railway-forest hover:bg-railway-forestDark text-white text-xs font-semibold transition cursor-pointer"
-                    >
                       <span>Proceed to Duration & Resources</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
@@ -1076,13 +922,13 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
               )}
 
               {/* ========================================================================= */}
-              {/* STEP 4: Duration, Resources & Operational Requirements                    */}
+              {/* STEP 3: Duration, Resources & Operational Requirements                    */}
               {/* ========================================================================= */}
-              {currentStep === 4 && (
+              {currentStep === 3 && (
                 <div className="space-y-5 animate-in fade-in duration-150">
                   <div className="border-b border-railway-border pb-3">
                     <span className="text-[10px] font-mono font-bold uppercase text-railway-forest bg-railway-forest/10 px-2.5 py-0.5 rounded-full">
-                      STEP 4 OF 5 · DURATION & OPERATIONAL REQUIREMENTS
+                      STEP 3 OF 4 · DURATION & OPERATIONAL REQUIREMENTS
                     </span>
                     <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
                       Possession Duration Breakdown, Block Facilities & Gang Mobilization
@@ -1456,16 +1302,16 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                   <div className="pt-4 border-t border-railway-border flex items-center justify-between">
                     <button
                       type="button"
-                      onClick={() => setCurrentStep(3)}
+                      onClick={() => setCurrentStep(2)}
                       className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-railway-border text-xs text-railway-textSecondary hover:text-railway-textPrimary transition cursor-pointer"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Back to Affected Infrastructure</span>
+                      <span>Back to Location</span>
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => setCurrentStep(5)}
+                      onClick={() => setCurrentStep(4)}
                       className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-railway-forest hover:bg-railway-forestDark text-white text-xs font-semibold transition cursor-pointer"
                     >
                       <span>Proceed to Train Intelligence & Windows</span>
@@ -1476,13 +1322,13 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
               )}
 
               {/* ========================================================================= */}
-              {/* STEP 5: Train Intelligence & Candidate Windows Preview                     */}
+              {/* STEP 4: Train Intelligence & Candidate Windows Preview                     */}
               {/* ========================================================================= */}
-              {currentStep === 5 && (
+              {currentStep === 4 && (
                 <div className="space-y-5 animate-in fade-in duration-150">
                   <div className="border-b border-railway-border pb-3">
                     <span className="text-[10px] font-mono font-bold uppercase text-railway-forest bg-railway-forest/10 px-2.5 py-0.5 rounded-full">
-                      STEP 5 OF 5 · TRAIN INTELLIGENCE & WINDOWS PREVIEW
+                      STEP 4 OF 4 · TRAIN INTELLIGENCE & WINDOWS PREVIEW
                     </span>
                     <h4 className="text-lg font-bold text-railway-textPrimary mt-1.5">
                       Corridor Train Proximity & Feasibility Preview
@@ -1552,7 +1398,7 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
-                      {(step5Analysis?.candidateWindows || []).map((cand, idx) => {
+                      {(step4Analysis?.candidateWindows || []).map((cand, idx) => {
                         const slotLabel = idx === 0 ? 'Early Morning' : idx === 1 ? 'Optimal Corridor' : 'Afternoon';
                         const isRecommended = Boolean(cand.isRecommended);
                         const isFeasible = cand.status === 'FEASIBLE';
@@ -1611,7 +1457,7 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
                   <div className="pt-4 border-t border-railway-border flex items-center justify-between">
                     <button
                       type="button"
-                      onClick={() => setCurrentStep(4)}
+                      onClick={() => setCurrentStep(3)}
                       className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-railway-border text-xs text-railway-textSecondary hover:text-railway-textPrimary transition cursor-pointer"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />

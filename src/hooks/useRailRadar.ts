@@ -3,7 +3,7 @@
 // Adheres strictly to Section 17 & Section 18: single shared poller, 30s interval, in-flight deduplication
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { LiveTrainPosition, StationBoardEntry, DataSource } from '../types/samnvay';
+import type { LiveTrainPosition, StationBoardEntry, DataSource, NormalizedRailState } from '../types/samnvay';
 import { 
   fetchLiveTrainStatus, 
   fetchLiveStationBoard, 
@@ -22,15 +22,26 @@ export const EXACT_POLL_INTERVAL = 30_000; // 30 seconds default operational pol
 interface PollerState {
   trains: LiveTrainPosition[];
   source: DataSource;
+  status?: 'READY' | 'UNAVAILABLE' | 'ERROR';
+  errorCode?: string;
+  normalizedState?: NormalizedRailState;
   lastUpdated: string | null;
   upstreamUpdatedAt: string | null;
+  lastSuccessfulSync: string | null;
+  lastAttempt: string | null;
   isLoading: boolean;
   error: string | null;
+  isBackingOff?: boolean;
+  backoffUntil?: number | null;
 }
 
 /**
  * Shared Corridor Poller Singleton
- * Ensures only ONE polling timer is active across all components (Map, Planning, Conflict, Live Trains, Dashboard)
+ * Ensures only ONE polling loop is active across all components (Map, Planning, Conflict, Live Trains, Dashboard)
+ * Implements Sections 3, 4, 5, 6, 14, 18, 22, 23:
+ * - Singleton lifecycle
+ * - Controlled cycle: request -> wait -> schedule next cycle (no overlapping polls)
+ * - Dynamic backoff adaptation on 429/503
  */
 class SharedCorridorPoller {
   private timer: any = null;
@@ -44,15 +55,21 @@ class SharedCorridorPoller {
     source: 'LIVE',
     lastUpdated: null,
     upstreamUpdatedAt: null,
+    lastSuccessfulSync: null,
+    lastAttempt: null,
     isLoading: false,
     error: null
   };
+
+  public getSubscriberCount(): number {
+    return this.subscribers.size;
+  }
 
   public setInterval(intervalMs: number) {
     if (intervalMs >= 5000 && intervalMs !== this.intervalMs) {
       this.intervalMs = intervalMs;
       if (this.subscribers.size > 0) {
-        this.restartTimer();
+        this.scheduleNextTick(this.intervalMs);
       }
     }
   }
@@ -69,10 +86,10 @@ class SharedCorridorPoller {
     // Immediately send current state
     cb(this.currentState);
 
-    // If this is the first subscriber, start timer and fetch immediately
+    // If this is the first subscriber, start controlled timer and fetch immediately
     if (this.subscribers.size === 1) {
-      this.startTimer();
       this.fetchNow(false);
+      this.scheduleNextTick(this.intervalMs);
     }
 
     return () => {
@@ -102,17 +119,26 @@ class SharedCorridorPoller {
           await invalidateServerCache();
         }
 
+        const attemptTime = new Date().toISOString();
         const result = await fetchAllCorridorTrains({ mode, refresh: manualRefresh });
         const isSuccess = result.source !== 'UNAVAILABLE' && result.trains.length > 0;
 
         if (isSuccess) {
+          this.intervalMs = EXACT_POLL_INTERVAL; // Reset to standard interval on success
           this.currentState = {
             trains: result.trains,
             source: result.source,
-            lastUpdated: result.timestamp || new Date().toISOString(),
+            status: result.status,
+            errorCode: result.errorCode,
+            normalizedState: result.normalizedState,
+            lastUpdated: result.timestamp || attemptTime,
             upstreamUpdatedAt: result.upstreamUpdatedAt || this.currentState.upstreamUpdatedAt,
+            lastSuccessfulSync: result.timestamp || attemptTime,
+            lastAttempt: attemptTime,
             isLoading: false,
-            error: null
+            error: null,
+            isBackingOff: false,
+            backoffUntil: null
           };
 
           // Update central Samnvay Store
@@ -122,23 +148,40 @@ class SharedCorridorPoller {
               ...store.liveData,
               source: result.source,
               liveTrains: result.trains,
+              normalizedState: result.normalizedState,
               lastFetchTimestamp: this.currentState.lastUpdated,
               error: null
             }
           });
         } else {
+          // If backoff is active from server, extend next polling interval accordingly
+          const backoffSec = result.backoffSeconds || 0;
+          const backoffUntil = backoffSec > 0 ? Date.now() + backoffSec * 1000 : null;
+          if (backoffSec > 0) {
+            this.intervalMs = Math.max(EXACT_POLL_INTERVAL, backoffSec * 1000);
+            console.warn(`[SharedCorridorPoller] Server rate-limited. Setting next poll interval to ${Math.round(this.intervalMs / 1000)}s.`);
+          }
+
           this.currentState = {
             ...this.currentState,
             trains: [],
             source: 'UNAVAILABLE',
+            status: result.status || 'UNAVAILABLE',
+            errorCode: result.errorCode,
+            normalizedState: result.normalizedState,
+            lastAttempt: attemptTime,
             isLoading: false,
-            error: result.errors.length > 0 ? result.errors[0] : 'Live RailRadar telemetry unavailable'
+            error: result.errors.length > 0 ? result.errors[0] : 'Live RailRadar telemetry unavailable',
+            isBackingOff: Boolean(backoffUntil && backoffUntil > Date.now()),
+            backoffUntil
           };
           const store = getSamnvayState();
           setSamnvayState({
             liveData: {
               ...store.liveData,
               source: 'UNAVAILABLE',
+              liveTrains: [],
+              normalizedState: result.normalizedState,
               error: this.currentState.error
             }
           });
@@ -148,12 +191,30 @@ class SharedCorridorPoller {
           ...this.currentState,
           trains: [],
           source: 'UNAVAILABLE',
+          status: 'ERROR',
+          errorCode: 'PROVIDER_UNAVAILABLE',
+          lastAttempt: new Date().toISOString(),
           isLoading: false,
-          error: err?.message || 'Failed to refresh corridor trains'
+          error: err?.message || 'Failed to refresh corridor trains',
+          isBackingOff: false,
+          backoffUntil: null
         };
+        const store = getSamnvayState();
+        setSamnvayState({
+          liveData: {
+            ...store.liveData,
+            source: 'UNAVAILABLE',
+            liveTrains: [],
+            error: this.currentState.error
+          }
+        });
       } finally {
         this.inFlightPromise = null;
         this.notifySubscribers();
+        // Controlled cycle: schedule next tick AFTER current response completes (Section 23)
+        if (this.subscribers.size > 0) {
+          this.scheduleNextTick(this.intervalMs);
+        }
       }
       return this.currentState;
     })();
@@ -171,22 +232,20 @@ class SharedCorridorPoller {
     });
   }
 
-  private startTimer() {
+  private scheduleNextTick(delayMs: number = this.intervalMs) {
     this.stopTimer();
-    this.timer = setInterval(() => {
-      this.fetchNow(false);
-    }, this.intervalMs);
+    this.timer = setTimeout(() => {
+      if (this.subscribers.size > 0 && !this.inFlightPromise) {
+        this.fetchNow(false);
+      }
+    }, delayMs);
   }
 
   private stopTimer() {
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
-  }
-
-  private restartTimer() {
-    this.startTimer();
   }
 }
 
@@ -217,13 +276,22 @@ export function useCorridorTrains(
     return sharedCorridorPoller.fetchNow(true);
   }, []);
 
+  const isBackingOff = Boolean(state.backoffUntil && state.backoffUntil > Date.now());
+  const backoffRemainingMs = Math.max(0, (state.backoffUntil || 0) - Date.now());
+
   return { 
     trains: state.trains, 
     source: state.source, 
+    status: state.status,
+    errorCode: state.errorCode,
     lastUpdated: state.lastUpdated, 
     upstreamUpdatedAt: state.upstreamUpdatedAt, 
+    lastSuccessfulSync: state.lastSuccessfulSync,
+    lastAttempt: state.lastAttempt,
     isLoading: state.isLoading, 
     error: state.error, 
+    isBackingOff,
+    backoffRemainingMs,
     refetch 
   };
 }
@@ -303,34 +371,50 @@ export function useStationBoard(
   };
 }
 
+export type TrainSearchState = 
+  | 'IDLE' 
+  | 'SEARCHING' 
+  | 'FOUND' 
+  | 'TRAIN_NOT_FOUND' 
+  | 'LIVE_DATA_UNAVAILABLE' 
+  | 'LOCATION_UNAVAILABLE'
+  | 'ERROR';
+
 /**
  * Universal Multi-Entity Search (Train Number, Train Name, Station)
- * Implements Section 2: resolves train identity before querying live information
+ * Strictly queries the live RailRadar backend without searching local/static lists first.
  */
 export function useLiveTrainSearch(isLiveMode: boolean = true) {
   const [train, setTrain] = useState<LiveTrainPosition | null>(null);
   const [source, setSource] = useState<DataSource>(isLiveMode ? 'LIVE' : 'UNAVAILABLE');
+  const [searchState, setSearchState] = useState<TrainSearchState>('IDLE');
+  const [searchMessage, setSearchMessage] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [routeGeometry, setRouteGeometry] = useState<any | null>(null);
 
-  const mode: 'live' | 'demo' = isLiveMode ? 'live' : 'demo';
-
   const search = useCallback(async (query: string, manualRefresh: boolean = true) => {
     const cleaned = query.trim();
-    if (!cleaned) return;
+    if (!cleaned) {
+      setSearchState('IDLE');
+      setSearchMessage('');
+      setTrain(null);
+      setError(null);
+      return;
+    }
     
     setTrain(null);
     setError(null);
     setRouteGeometry(null);
     setIsLoading(true);
+    setSearchState('SEARCHING');
+    setSearchMessage('Fetching live RailRadar data...');
 
     try {
       let resolvedNumber = cleaned;
 
-      // If query contains letters (Train Name or Station Name) rather than pure digits
+      // If query contains letters (Train Name or Station Name) rather than pure digits, resolve via backend search
       if (/[a-zA-Z]/.test(cleaned)) {
-        // Try searching for matching train
         const matchingTrains = await searchRailRadarTrains(cleaned);
         if (matchingTrains.length > 0) {
           resolvedNumber = matchingTrains[0].trainNumber || matchingTrains[0].number || cleaned;
@@ -340,17 +424,19 @@ export function useLiveTrainSearch(isLiveMode: boolean = true) {
           if (matchingStations.length > 0) {
             setTrain(null);
             setSource('UNAVAILABLE');
+            setSearchState('TRAIN_NOT_FOUND');
             setError(`Found station "${matchingStations[0].name}" (${matchingStations[0].code}). Use Station Board to view live arrivals.`);
+            setSearchMessage(`Station "${matchingStations[0].code}" found`);
             setIsLoading(false);
             return;
           }
         }
       }
 
-      // Query live status
+      // Query live status directly from RailRadar Backend API
       const [trainRes, routeRes] = await Promise.all([
-        fetchLiveTrainStatus(resolvedNumber, { mode, refresh: manualRefresh }),
-        fetchTrainRouteGeometry(resolvedNumber, { mode, refresh: manualRefresh }).catch(() => null)
+        fetchLiveTrainStatus(resolvedNumber, { mode: 'live', refresh: manualRefresh }),
+        fetchTrainRouteGeometry(resolvedNumber, { mode: 'live', refresh: manualRefresh }).catch(() => null)
       ]);
 
       if (trainRes.data && trainRes.source !== 'UNAVAILABLE') {
@@ -361,29 +447,54 @@ export function useLiveTrainSearch(isLiveMode: boolean = true) {
             : undefined
         };
         setTrain(trainData);
-        setSource(trainRes.source);
+        setSource('LIVE');
+        setSearchState('FOUND');
+        setSearchMessage('LIVE');
         setRouteGeometry(routeRes?.data || null);
         setError(null);
       } else {
         setTrain(null);
-        setSource(trainRes.source);
-        setError(trainRes.error || `Train data unavailable for "${query}".`);
+        setSource('UNAVAILABLE');
+        if (trainRes.error === 'TRAIN NOT FOUND') {
+          setSearchState('TRAIN_NOT_FOUND');
+          setError('TRAIN NOT FOUND');
+          setSearchMessage('TRAIN NOT FOUND');
+        } else {
+          setSearchState('LIVE_DATA_UNAVAILABLE');
+          setError(trainRes.error || 'LIVE DATA UNAVAILABLE');
+          setSearchMessage(trainRes.error || 'LIVE DATA UNAVAILABLE');
+        }
       }
     } catch (err: any) {
       setTrain(null);
-      setError('Train data unavailable');
+      setSource('UNAVAILABLE');
+      setSearchState('ERROR');
+      setError('LIVE DATA UNAVAILABLE');
+      setSearchMessage('LIVE DATA UNAVAILABLE');
     } finally {
       setIsLoading(false);
     }
-  }, [mode]);
+  }, []);
 
   const clear = useCallback(() => {
     setTrain(null);
     setError(null);
+    setSearchState('IDLE');
+    setSearchMessage('');
     setRouteGeometry(null);
   }, []);
 
-  return { train, source, isLoading, error, routeGeometry, search, clear };
+  return { 
+    train, 
+    source, 
+    isLoading, 
+    searchState, 
+    searchMessage, 
+    error, 
+    routeGeometry, 
+    search, 
+    clear 
+  };
 }
 
 /**

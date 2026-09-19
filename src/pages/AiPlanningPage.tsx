@@ -1544,7 +1544,7 @@ export const AiPlanningPage: React.FC<AiPlanningPageProps> = ({ onNavigate }) =>
 
             {/* Comparison Table */}
             <div className="overflow-x-auto rounded-2xl border border-railway-border">
-              <table className="w-full text-xs font-mono text-left">
+              <table className="w-full min-w-[560px] text-xs font-mono text-left">
                 <thead className="bg-neutral-100/90 text-neutral-600 border-b border-railway-border uppercase text-[10px]">
                   <tr>
                     <th className="p-3">Candidate Slot</th>

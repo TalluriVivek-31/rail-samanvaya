@@ -10,10 +10,23 @@ import {
   searchRailRadarTrains,
   getStationDirectory,
   getTrainDirectory,
-  clearRailRadarCache 
+  clearRailRadarCache,
+  getRailRadarMetrics,
+  getRailRadarHealth,
+  railRadarGovernor,
+  ServiceResponse
 } from '../integrations/railRadarService.js';
 
 const router = Router();
+
+// GET /api/railradar/metrics (Section 30 Request Metrics)
+router.get('/metrics', (req: Request, res: Response): void => {
+  res.json({
+    success: true,
+    data: getRailRadarMetrics(),
+    timestamp: new Date().toISOString()
+  });
+});
 
 // POST /api/railradar/cache/clear
 router.post('/cache/clear', (req: Request, res: Response): void => {
@@ -29,11 +42,8 @@ router.post('/cache/clear', (req: Request, res: Response): void => {
 });
 
 // GET /api/railradar/health
-// Diagnostic endpoint: Reports configured status, backend availability, and provider reachability without exposing secrets
-let cachedHealthProbe: { timestamp: number; result: any } | null = null;
-const HEALTH_CACHE_TTL = 300_000; // 5 minutes
-
-router.get('/health', async (req: Request, res: Response): Promise<void> => {
+// Diagnostic endpoint: Reports configured status, backend availability, and provider reachability without exhausting quota (Section 21)
+router.get('/health', (req: Request, res: Response): void => {
   try {
     const rawKey = process.env.RAILRADAR_API_KEY || '';
     const apiKey = rawKey.trim().replace(/^Bearer\s+/i, '');
@@ -53,76 +63,22 @@ router.get('/health', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Use cached probe to avoid exhausting monthly quota
-    const now = Date.now();
-    if (cachedHealthProbe && (now - cachedHealthProbe.timestamp) < HEALTH_CACHE_TTL) {
-      res.json(cachedHealthProbe.result);
-      return;
-    }
+    const health = getRailRadarHealth();
 
-    let providerReachable = false;
-    let providerStatus = 'unknown';
-    let failureState = 'UNKNOWN';
-    let httpStatus = 0;
-    let message = '';
-
-    try {
-      const probeController = new AbortController();
-      const probeTimeout = setTimeout(() => probeController.abort(), 4000);
-      const probeRes = await fetch('https://api.railradar.in/v1/trains/12627/live', {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'x-api-key': apiKey,
-          'Accept': 'application/json'
-        },
-        signal: probeController.signal
-      });
-      clearTimeout(probeTimeout);
-
-      httpStatus = probeRes.status;
-      providerReachable = true;
-
-      if (probeRes.status === 200) {
-        providerStatus = 'ready';
-        failureState = 'LIVE';
-        message = 'RailRadar provider reachable and telemetry available.';
-      } else if (probeRes.status === 429) {
-        providerStatus = 'rate_limited';
-        failureState = 'PROVIDER_UNAVAILABLE';
-        message = 'Upstream RailRadar quota exceeded (HTTP 429 Too Many Requests). Use DEMO mode or wait for quota reset.';
-      } else if (probeRes.status === 401 || probeRes.status === 403) {
-        providerStatus = 'auth_failed';
-        failureState = 'AUTHENTICATION_FAILED';
-        message = 'RailRadar authentication failed (invalid API key).';
-      } else {
-        providerStatus = 'degraded';
-        failureState = 'PROVIDER_UNAVAILABLE';
-        message = `Upstream RailRadar returned HTTP ${probeRes.status}.`;
-      }
-    } catch (probeErr: any) {
-      providerReachable = false;
-      providerStatus = 'unreachable';
-      failureState = probeErr?.name === 'AbortError' ? 'REQUEST_TIMEOUT' : 'PROVIDER_UNAVAILABLE';
-      message = probeErr?.name === 'AbortError' 
-        ? 'Request timeout connecting to upstream RailRadar API.' 
-        : `Network error connecting to RailRadar provider: ${probeErr?.message || 'Connection failed'}`;
-    }
-
-    const payload = {
+    res.json({
       provider: 'RailRadar',
       configured: true,
       backend: 'available',
-      providerReachable,
-      providerStatus,
-      status: providerStatus,
-      failureState,
-      httpStatus,
+      providerReachable: health.providerStatus === 'ready',
+      providerStatus: health.providerStatus,
+      status: health.providerStatus,
+      failureState: health.failureState,
+      httpStatus: health.httpStatus,
+      backoffActive: health.backoffActive,
+      remainingBackoffSeconds: health.remainingBackoffSeconds,
       timestamp: new Date().toISOString(),
-      message
-    };
-
-    cachedHealthProbe = { timestamp: now, result: payload };
-    res.json(payload);
+      message: health.message
+    });
   } catch (error) {
     res.status(500).json({
       provider: 'RailRadar',
@@ -149,10 +105,21 @@ router.get('/train/:number/live', async (req: Request, res: Response): Promise<v
     const result = await getLiveTrainStatus(trainNumber, { forceRefresh, mode, date });
     
     if (result.source === 'UNAVAILABLE' || !result.data) {
-      res.status(404).json({
+      const statusCode = result.errorCode === 'AUTHENTICATION_FAILED' ? 401
+        : result.errorCode === 'RATE_LIMITED' ? 429
+        : result.errorCode === 'NOT_CONFIGURED' ? 503
+        : result.errorCode === 'TRAIN_NOT_FOUND' ? 404
+        : 503;
+
+      res.status(statusCode).json({
         success: false,
-        error: result.error || 'Train data unavailable',
-        source: result.source,
+        source: 'RAILRADAR',
+        status: result.status || 'UNAVAILABLE',
+        errorCode: result.errorCode || 'PROVIDER_UNAVAILABLE',
+        upstreamStatus: result.upstreamStatus || statusCode,
+        message: result.message || result.error || 'Live train telemetry unavailable',
+        error: result.error || 'Live train telemetry unavailable',
+        data: null,
         timestamp: result.timestamp,
         upstreamUpdatedAt: result.upstreamUpdatedAt,
         meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
@@ -162,17 +129,22 @@ router.get('/train/:number/live', async (req: Request, res: Response): Promise<v
 
     res.json({
       success: true,
-      data: result.data,
       source: result.source,
+      status: result.status || 'READY',
+      data: result.data,
       timestamp: result.timestamp,
       upstreamUpdatedAt: result.upstreamUpdatedAt,
       meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       success: false,
+      source: 'RAILRADAR',
+      status: 'ERROR',
+      errorCode: 'PROVIDER_UNAVAILABLE',
       error: 'Internal server error processing live train status',
-      source: 'UNAVAILABLE',
+      message: error?.message || 'Internal server error processing live train status',
+      data: null,
       timestamp: new Date().toISOString()
     });
   }
@@ -189,10 +161,21 @@ router.get('/station/:code/live', async (req: Request, res: Response): Promise<v
     const result = await getLiveStationBoard(stationCode, { forceRefresh, mode });
     
     if (result.source === 'UNAVAILABLE' || !result.data) {
-      res.status(result.source === 'UNAVAILABLE' ? 503 : 404).json({
+      const statusCode = result.errorCode === 'AUTHENTICATION_FAILED' ? 401
+        : result.errorCode === 'RATE_LIMITED' ? 429
+        : result.errorCode === 'NOT_CONFIGURED' ? 503
+        : result.errorCode === 'STATION_NOT_FOUND' ? 404
+        : 503;
+
+      res.status(statusCode).json({
         success: false,
+        source: 'RAILRADAR',
+        status: result.status || 'UNAVAILABLE',
+        errorCode: result.errorCode || 'PROVIDER_UNAVAILABLE',
+        upstreamStatus: result.upstreamStatus || statusCode,
+        message: result.message || result.error || 'Station board telemetry unavailable',
         error: result.error || 'Station board telemetry unavailable',
-        source: result.source,
+        data: null,
         timestamp: result.timestamp,
         upstreamUpdatedAt: result.upstreamUpdatedAt,
         meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
@@ -202,17 +185,22 @@ router.get('/station/:code/live', async (req: Request, res: Response): Promise<v
 
     res.json({
       success: true,
-      data: result.data,
       source: result.source,
+      status: result.status || 'READY',
+      data: result.data,
       timestamp: result.timestamp,
       upstreamUpdatedAt: result.upstreamUpdatedAt,
       meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       success: false,
+      source: 'RAILRADAR',
+      status: 'ERROR',
+      errorCode: 'PROVIDER_UNAVAILABLE',
       error: 'Internal server error processing live station board',
-      source: 'UNAVAILABLE',
+      message: error?.message || 'Internal server error processing live station board',
+      data: null,
       timestamp: new Date().toISOString()
     });
   }
@@ -229,10 +217,20 @@ router.get('/train/:number/route', async (req: Request, res: Response): Promise<
     const result = await getLiveTrainRoute(trainNumber, { forceRefresh, mode });
     
     if (result.source === 'UNAVAILABLE' || !result.data) {
-      res.status(result.source === 'UNAVAILABLE' ? 503 : 404).json({
+      const statusCode = result.errorCode === 'AUTHENTICATION_FAILED' ? 401
+        : result.errorCode === 'RATE_LIMITED' ? 429
+        : result.errorCode === 'NOT_CONFIGURED' ? 503
+        : 503;
+
+      res.status(statusCode).json({
         success: false,
+        source: 'RAILRADAR',
+        status: result.status || 'UNAVAILABLE',
+        errorCode: result.errorCode || 'PROVIDER_UNAVAILABLE',
+        upstreamStatus: result.upstreamStatus || statusCode,
+        message: result.message || result.error || 'Train route telemetry unavailable',
         error: result.error || 'Train route telemetry unavailable',
-        source: result.source,
+        data: null,
         timestamp: result.timestamp,
         upstreamUpdatedAt: result.upstreamUpdatedAt,
         meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
@@ -242,67 +240,210 @@ router.get('/train/:number/route', async (req: Request, res: Response): Promise<
 
     res.json({
       success: true,
-      data: result.data,
       source: result.source,
+      status: result.status || 'READY',
+      data: result.data,
       timestamp: result.timestamp,
       upstreamUpdatedAt: result.upstreamUpdatedAt,
       meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       success: false,
+      source: 'RAILRADAR',
+      status: 'ERROR',
+      errorCode: 'PROVIDER_UNAVAILABLE',
       error: 'Internal server error processing train route',
-      source: 'UNAVAILABLE',
+      message: error?.message || 'Internal server error processing train route',
+      data: null,
       timestamp: new Date().toISOString()
     });
   }
 });
 
 // GET /api/railradar/corridor/live
-// Safely aggregates live telemetry for Vijayawada Division corridor trains using existing RailRadar service
-const CORRIDOR_TRAIN_NUMBERS = ['12627', '12723', '17011', '20834', '12711', '12615'];
+// Discovers and aggregates live telemetry for Vijayawada Division corridor trains
+const BASE_CORRIDOR_TRAINS = ['12627', '12723', '12704', '12615', '12728'];
 
 router.get('/corridor/live', async (req: Request, res: Response): Promise<void> => {
   try {
     const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
     const mode = (req.query.mode === 'live' ? 'live' : 'demo') as 'live' | 'demo';
 
-    const results = await Promise.all(
-      CORRIDOR_TRAIN_NUMBERS.map(num => getLiveTrainStatus(num, { forceRefresh, mode }))
-    );
+    // Train discovery: accept custom trains query param or base corridor pool
+    let trainCandidates: string[] = [];
+    if (typeof req.query.trains === 'string' && req.query.trains.trim().length > 0) {
+      trainCandidates = req.query.trains.split(',').map(s => s.trim()).filter(Boolean);
+    } else {
+      trainCandidates = [...BASE_CORRIDOR_TRAINS];
+    }
+    const uniqueTrainNumbers = Array.from(new Set(trainCandidates));
 
-    const trains: any[] = [];
-    let liveCount = 0;
-    let demoCount = 0;
-    let latestUpstreamUpdate: string | undefined;
-
-    for (const r of results) {
-      if (r.data) {
-        trains.push(r.data);
-        if (r.upstreamUpdatedAt && (!latestUpstreamUpdate || r.upstreamUpdatedAt > latestUpstreamUpdate)) {
-          latestUpstreamUpdate = r.upstreamUpdatedAt;
-        }
+    // DEMO mode: fast-path execution without touching upstream API or governor backoff
+    if (mode === 'demo') {
+      const results: any[] = [];
+      for (const num of uniqueTrainNumbers) {
+        const r = await getLiveTrainStatus(num, { forceRefresh, mode: 'demo' });
+        results.push(r);
       }
-      if (r.source === 'LIVE') liveCount++;
-      if (r.source === 'DEMO') demoCount++;
+      const trains = results.filter(r => r.data).map(r => r.data);
+      res.json({
+        success: true,
+        source: 'DEMO',
+        status: 'READY',
+        trains,
+        activeCount: trains.length,
+        timestamp: new Date().toISOString(),
+        cycleCadenceMinutes: 20,
+        corridor: 'BPP-CLX-BZA Trunk Corridor'
+      });
+      return;
     }
 
-    const source = mode === 'live' ? (liveCount > 0 ? 'LIVE' : 'UNAVAILABLE') : 'DEMO';
+    // STEP 4: Single-flight lock for key corridor-live:BZA-GNT-TEL
+    const isBasePool = uniqueTrainNumbers.length === BASE_CORRIDOR_TRAINS.length &&
+      uniqueTrainNumbers.every((t, i) => t === BASE_CORRIDOR_TRAINS[i]);
+    const requestKey = isBasePool 
+      ? 'corridor-live:BZA-GNT-TEL' 
+      : `corridor-live:BZA-GNT-TEL:${uniqueTrainNumbers.sort().join(',')}`;
 
+    const corridorResponse = await railRadarGovernor.executeRequest({
+      requestKey,
+      endpoint: '/api/railradar/corridor/live',
+      caller: 'corridor-live',
+      ttlMs: 60000,
+      forceRefresh,
+      fetchFn: async (): Promise<ServiceResponse> => {
+        const results: any[] = [];
+        for (const num of uniqueTrainNumbers) {
+          if (railRadarGovernor.isBackingOff()) {
+            console.warn(`[Corridor Live] Backoff triggered during train processing. Stopping further fetches.`);
+            break;
+          }
+          const r = await getLiveTrainStatus(num, { forceRefresh, mode: 'live' });
+          results.push(r);
+        }
+
+        const seenRunIds = new Set<string>();
+        const activeTrains: any[] = [];
+        const terminatedTrains: any[] = [];
+        let liveCount = 0;
+        let latestUpstreamUpdate: string | undefined;
+        let firstError: any = null;
+
+        const TERMINAL_STATUSES = new Set([
+          'TERMINATED', 'ARRIVED', 'COMPLETED', 'JOURNEY_COMPLETED',
+          'AT_DESTINATION', 'FINISHED', 'TERMINAL'
+        ]);
+
+        for (const r of results) {
+          if (r.data) {
+            const runKey = r.data.runId || r.data.trainId || `${r.data.trainNumber}_${r.data.startDate || ''}`;
+            if (!seenRunIds.has(runKey)) {
+              seenRunIds.add(runKey);
+              // BUG 2 FIX: Separate completed/terminated trains from active trains
+              const status = String(r.data.runningStatus || r.data.status || '').toUpperCase();
+              const isTerminated = r.data.isTerminated === true || r.data.journeyCompleted === true || TERMINAL_STATUSES.has(status);
+              if (isTerminated) {
+                terminatedTrains.push(r.data);
+                console.log(`[Corridor Live] Train ${r.data.trainNumber} excluded from active list (status: ${status}, terminated: ${isTerminated})`);
+              } else {
+                activeTrains.push(r.data);
+              }
+            }
+            if (r.upstreamUpdatedAt && (!latestUpstreamUpdate || r.upstreamUpdatedAt > latestUpstreamUpdate)) {
+              latestUpstreamUpdate = r.upstreamUpdatedAt;
+            }
+          } else if (!firstError && (r.errorCode || r.error)) {
+            firstError = r;
+          }
+
+          if (r.source === 'LIVE') liveCount++;
+        }
+
+        if (liveCount === 0) {
+          const statusCode = firstError?.errorCode === 'AUTHENTICATION_FAILED' ? 401
+            : firstError?.errorCode === 'RATE_LIMIT_EXCEEDED' || firstError?.upstreamStatus === 429 ? 429
+            : firstError?.errorCode === 'NOT_CONFIGURED' ? 503
+            : 503;
+
+          return {
+            source: 'UNAVAILABLE',
+            status: 'UNAVAILABLE',
+            errorCode: firstError?.errorCode || (statusCode === 429 ? 'RATE_LIMIT_EXCEEDED' : 'PROVIDER_UNAVAILABLE'),
+            upstreamStatus: firstError?.upstreamStatus || statusCode,
+            message: firstError?.message || firstError?.error || 'RailRadar live telemetry is unavailable for corridor.',
+            error: firstError?.error || 'RailRadar live telemetry is unavailable for corridor.',
+            backoffSeconds: firstError?.backoffSeconds,
+            nextRetryAt: firstError?.nextRetryAt,
+            data: null,
+            timestamp: new Date().toISOString()
+          };
+        }
+
+        return {
+          source: 'LIVE',
+          status: 'READY',
+          data: {
+            trains: activeTrains,
+            terminatedTrains,
+            activeCount: activeTrains.length,
+            terminatedCount: terminatedTrains.length,
+            upstreamUpdatedAt: latestUpstreamUpdate,
+            cycleCadenceMinutes: 20,
+            corridor: 'BPP-CLX-BZA Trunk Corridor'
+          },
+          timestamp: new Date().toISOString()
+        };
+      }
+    });
+
+    if (corridorResponse.status === 'UNAVAILABLE' || corridorResponse.source === 'UNAVAILABLE') {
+      const statusCode = corridorResponse.errorCode === 'AUTHENTICATION_FAILED' ? 401
+        : corridorResponse.errorCode === 'RATE_LIMIT_EXCEEDED' || corridorResponse.upstreamStatus === 429 ? 429
+        : corridorResponse.errorCode === 'NOT_CONFIGURED' ? 503
+        : 503;
+      const remainingSec = railRadarGovernor.getRemainingBackoffSeconds();
+      const backoffUntil = railRadarGovernor.getBackoffUntil();
+
+      res.status(statusCode).json({
+        success: false,
+        source: 'RAILRADAR',
+        status: 'UNAVAILABLE',
+        errorCode: corridorResponse.errorCode || (statusCode === 429 ? 'RATE_LIMIT_EXCEEDED' : 'PROVIDER_UNAVAILABLE'),
+        upstreamStatus: corridorResponse.upstreamStatus || statusCode,
+        message: corridorResponse.message || 'RailRadar live telemetry is unavailable for corridor.',
+        error: corridorResponse.error || corridorResponse.message || 'RailRadar live telemetry is unavailable for corridor.',
+        backoffSeconds: remainingSec || corridorResponse.backoffSeconds || undefined,
+        nextRetryAt: backoffUntil || corridorResponse.nextRetryAt || undefined,
+        trains: [],
+        timestamp: new Date().toISOString(),
+        corridor: 'BPP-CLX-BZA Trunk Corridor'
+      });
+      return;
+    }
+
+    const data = corridorResponse.data || {};
     res.json({
-      success: source !== 'UNAVAILABLE',
-      source,
-      trains,
+      success: true,
+      source: 'LIVE',
+      status: 'READY',
+      trains: data.trains || [],
+      activeCount: (data.trains || []).length,
       timestamp: new Date().toISOString(),
-      upstreamUpdatedAt: latestUpstreamUpdate,
-      cycleCadenceMinutes: 20,
+      upstreamUpdatedAt: data.upstreamUpdatedAt,
+      cycleCadenceMinutes: data.cycleCadenceMinutes || 20,
       corridor: 'BPP-CLX-BZA Trunk Corridor'
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       success: false,
+      source: 'RAILRADAR',
+      status: 'ERROR',
+      errorCode: 'PROVIDER_UNAVAILABLE',
       error: 'Internal server error processing corridor live trains',
-      source: 'UNAVAILABLE',
+      message: error?.message || 'Internal server error processing corridor live trains',
+      trains: [],
       timestamp: new Date().toISOString()
     });
   }
@@ -317,19 +458,48 @@ router.get('/train/:number/schedule', async (req: Request, res: Response): Promi
     const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
 
     const result = await getTrainSchedule(trainNumber, { haltsOnly, forceRefresh });
+
+    if (result.source === 'UNAVAILABLE' || !result.data) {
+      const statusCode = result.errorCode === 'AUTHENTICATION_FAILED' ? 401
+        : result.errorCode === 'RATE_LIMITED' ? 429
+        : result.errorCode === 'NOT_CONFIGURED' ? 503
+        : result.errorCode === 'TRAIN_NOT_FOUND' ? 404
+        : 503;
+
+      res.status(statusCode).json({
+        success: false,
+        source: 'RAILRADAR',
+        status: result.status || 'UNAVAILABLE',
+        errorCode: result.errorCode || 'PROVIDER_UNAVAILABLE',
+        upstreamStatus: result.upstreamStatus || statusCode,
+        message: result.message || result.error || 'Train schedule telemetry unavailable',
+        error: result.error || 'Train schedule telemetry unavailable',
+        data: null,
+        timestamp: result.timestamp,
+        upstreamUpdatedAt: result.upstreamUpdatedAt,
+        meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
+      });
+      return;
+    }
+
     res.json({
-      success: result.source !== 'UNAVAILABLE',
+      success: true,
       data: result.data,
       source: result.source,
+      status: result.status || 'READY',
       timestamp: result.timestamp,
       upstreamUpdatedAt: result.upstreamUpdatedAt,
       meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       success: false,
+      source: 'RAILRADAR',
+      status: 'ERROR',
+      errorCode: 'PROVIDER_UNAVAILABLE',
       error: 'Internal server error processing train schedule',
-      source: 'UNAVAILABLE',
+      message: error?.message || 'Internal server error processing train schedule',
+      data: null,
       timestamp: new Date().toISOString()
     });
   }
@@ -345,19 +515,47 @@ router.get('/trains/between/:from/:to', async (req: Request, res: Response): Pro
     const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
 
     const result = await getTrainsBetweenStations(fromStation, toStation, date, { live, forceRefresh });
+
+    if (result.source === 'UNAVAILABLE' || !result.data) {
+      const statusCode = result.errorCode === 'AUTHENTICATION_FAILED' ? 401
+        : result.errorCode === 'RATE_LIMITED' ? 429
+        : result.errorCode === 'NOT_CONFIGURED' ? 503
+        : 503;
+
+      res.status(statusCode).json({
+        success: false,
+        source: 'RAILRADAR',
+        status: result.status || 'UNAVAILABLE',
+        errorCode: result.errorCode || 'PROVIDER_UNAVAILABLE',
+        upstreamStatus: result.upstreamStatus || statusCode,
+        message: result.message || result.error || 'Trains between stations unavailable',
+        error: result.error || 'Trains between stations unavailable',
+        data: null,
+        timestamp: result.timestamp,
+        upstreamUpdatedAt: result.upstreamUpdatedAt,
+        meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
+      });
+      return;
+    }
+
     res.json({
-      success: result.source !== 'UNAVAILABLE',
+      success: true,
       data: result.data,
       source: result.source,
+      status: result.status || 'READY',
       timestamp: result.timestamp,
       upstreamUpdatedAt: result.upstreamUpdatedAt,
       meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       success: false,
+      source: 'RAILRADAR',
+      status: 'ERROR',
+      errorCode: 'PROVIDER_UNAVAILABLE',
       error: 'Internal server error processing trains between stations',
-      source: 'UNAVAILABLE',
+      message: error?.message || 'Internal server error processing trains between stations',
+      data: null,
       timestamp: new Date().toISOString()
     });
   }
@@ -371,19 +569,48 @@ router.get('/station/:code/timetable', async (req: Request, res: Response): Prom
     const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
 
     const result = await getStationTimetable(stationCode, date, { forceRefresh });
+
+    if (result.source === 'UNAVAILABLE' || !result.data) {
+      const statusCode = result.errorCode === 'AUTHENTICATION_FAILED' ? 401
+        : result.errorCode === 'RATE_LIMITED' ? 429
+        : result.errorCode === 'NOT_CONFIGURED' ? 503
+        : result.errorCode === 'STATION_NOT_FOUND' ? 404
+        : 503;
+
+      res.status(statusCode).json({
+        success: false,
+        source: 'RAILRADAR',
+        status: result.status || 'UNAVAILABLE',
+        errorCode: result.errorCode || 'PROVIDER_UNAVAILABLE',
+        upstreamStatus: result.upstreamStatus || statusCode,
+        message: result.message || result.error || 'Station timetable telemetry unavailable',
+        error: result.error || 'Station timetable telemetry unavailable',
+        data: null,
+        timestamp: result.timestamp,
+        upstreamUpdatedAt: result.upstreamUpdatedAt,
+        meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
+      });
+      return;
+    }
+
     res.json({
-      success: result.source !== 'UNAVAILABLE',
+      success: true,
       data: result.data,
       source: result.source,
+      status: result.status || 'READY',
       timestamp: result.timestamp,
       upstreamUpdatedAt: result.upstreamUpdatedAt,
       meta: { cached: !!result.cached, cacheExpiresAt: result.cacheExpiresAt }
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       success: false,
+      source: 'RAILRADAR',
+      status: 'ERROR',
+      errorCode: 'PROVIDER_UNAVAILABLE',
       error: 'Internal server error processing station timetable',
-      source: 'UNAVAILABLE',
+      message: error?.message || 'Internal server error processing station timetable',
+      data: null,
       timestamp: new Date().toISOString()
     });
   }
@@ -396,17 +623,43 @@ router.get('/search/stations', async (req: Request, res: Response): Promise<void
     const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
 
     const result = await searchRailRadarStations(q, { forceRefresh });
+
+    if (result.source === 'UNAVAILABLE' && (!result.data || (Array.isArray(result.data) && result.data.length === 0))) {
+      const statusCode = result.errorCode === 'AUTHENTICATION_FAILED' ? 401
+        : result.errorCode === 'RATE_LIMITED' ? 429
+        : result.errorCode === 'NOT_CONFIGURED' ? 503
+        : 503;
+
+      res.status(statusCode).json({
+        success: false,
+        source: 'RAILRADAR',
+        status: result.status || 'UNAVAILABLE',
+        errorCode: result.errorCode || 'PROVIDER_UNAVAILABLE',
+        upstreamStatus: result.upstreamStatus || statusCode,
+        message: result.message || result.error || 'Station search unavailable',
+        error: result.error || 'Station search unavailable',
+        data: [],
+        timestamp: result.timestamp
+      });
+      return;
+    }
+
     res.json({
       success: true,
-      data: result.data,
+      data: result.data || [],
       source: result.source,
+      status: result.status || 'READY',
       timestamp: result.timestamp
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       success: false,
+      source: 'RAILRADAR',
+      status: 'ERROR',
+      errorCode: 'PROVIDER_UNAVAILABLE',
       error: 'Internal server error searching stations',
-      source: 'UNAVAILABLE',
+      message: error?.message || 'Internal server error searching stations',
+      data: [],
       timestamp: new Date().toISOString()
     });
   }
@@ -419,17 +672,43 @@ router.get('/search/trains', async (req: Request, res: Response): Promise<void> 
     const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
 
     const result = await searchRailRadarTrains(q, { forceRefresh });
+
+    if (result.source === 'UNAVAILABLE' && (!result.data || (Array.isArray(result.data) && result.data.length === 0))) {
+      const statusCode = result.errorCode === 'AUTHENTICATION_FAILED' ? 401
+        : result.errorCode === 'RATE_LIMITED' ? 429
+        : result.errorCode === 'NOT_CONFIGURED' ? 503
+        : 503;
+
+      res.status(statusCode).json({
+        success: false,
+        source: 'RAILRADAR',
+        status: result.status || 'UNAVAILABLE',
+        errorCode: result.errorCode || 'PROVIDER_UNAVAILABLE',
+        upstreamStatus: result.upstreamStatus || statusCode,
+        message: result.message || result.error || 'Train search unavailable',
+        error: result.error || 'Train search unavailable',
+        data: [],
+        timestamp: result.timestamp
+      });
+      return;
+    }
+
     res.json({
       success: true,
-      data: result.data,
+      data: result.data || [],
       source: result.source,
+      status: result.status || 'READY',
       timestamp: result.timestamp
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       success: false,
+      source: 'RAILRADAR',
+      status: 'ERROR',
+      errorCode: 'PROVIDER_UNAVAILABLE',
       error: 'Internal server error searching trains',
-      source: 'UNAVAILABLE',
+      message: error?.message || 'Internal server error searching trains',
+      data: [],
       timestamp: new Date().toISOString()
     });
   }

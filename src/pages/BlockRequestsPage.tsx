@@ -341,8 +341,8 @@ export const BlockRequestsPage: React.FC<BlockRequestsPageProps> = ({
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto -mx-1 px-1">
+            <table className="w-full min-w-[640px] text-left border-collapse">
               <thead>
                 <tr className="border-b border-[#E8E6DF] bg-[#F2F2EF]/60 text-[11px] font-extrabold text-[#546A7B] uppercase tracking-wider">
                   <th className="py-4 px-6">ID & Facilities</th>

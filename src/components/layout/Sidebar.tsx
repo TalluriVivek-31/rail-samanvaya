@@ -111,7 +111,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onSelectPage }) =
   const navItems = allNavItems.filter(item => hasPermission(item.id));
 
   return (
-    <aside className="w-64 shrink-0 bg-white border border-[#E8E6DF] rounded-3xl mx-4 my-2 mb-4 p-4 flex flex-col justify-between shadow-sm">
+    <aside className="hidden md:flex md:w-56 lg:w-64 shrink-0 bg-white border border-[#E8E6DF] rounded-3xl mx-4 my-2 mb-4 p-4 flex-col justify-between shadow-sm">
       {/* Navigation Items */}
       <div className="space-y-1.5">
         <div className="px-3 py-1 text-[11px] font-extrabold uppercase tracking-widest text-[#546A7B]">

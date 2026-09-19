@@ -464,9 +464,39 @@ export interface AuditEvent {
 
 export type DataSource = 'LIVE' | 'LAST_KNOWN' | 'DEMO' | 'UNAVAILABLE';
 
+export type LocationConfidence = 'GPS_VERIFIED' | 'STATION_VERIFIED' | 'INTERPOLATED' | 'UNKNOWN';
+export type OperationalUsability = 'SUITABLE' | 'INSUFFICIENT_DATA' | 'UNKNOWN';
+export type ConflictStatus = 'CONFLICT' | 'NO_CONFLICT' | 'UNKNOWN';
+
+export interface OperationalDataCompleteness {
+  totalReceived?: number;
+  mappableCount?: number;
+  withRouteCount?: number;
+  withDirectionCount?: number;
+  usableIntelligenceCount?: number;
+  validCoordinatesRatio?: number;
+  validSpeedRatio?: number;
+  validDelayRatio?: number;
+  locationConfirmedRatio?: number;
+}
+
+export interface NormalizedRailState {
+  source: 'RAILRADAR' | 'DEMO' | 'UNAVAILABLE' | DataSource;
+  status: 'LIVE' | 'STALE' | 'UNAVAILABLE' | 'ERROR' | 'READY';
+  retrievedAt?: string;
+  telemetryAgeSeconds?: number;
+  trains: LiveTrainPosition[];
+  errors?: string[];
+  completeness?: OperationalDataCompleteness;
+  errorCode?: string;
+  lastRefreshed?: string;
+  error?: string;
+}
+
 export interface LiveTrainPosition {
   trainNumber: string;
   trainName: string;
+  trainId?: string;                // Canonical unique identifier e.g. 12704-20260918-RUN-1
   runId?: string | null;           // RailRadar run ID (null if not provided upstream)
   journeyId?: string | null;       // RailRadar journey ID (null if not provided upstream)
   serviceDate?: string;            // Canonical upstream start date (YYYY-MM-DD)
@@ -474,6 +504,7 @@ export interface LiveTrainPosition {
   startDate?: string;              // Canonical upstream startDate (YYYY-MM-DD)
   telemetryTimestamp?: string;     // Raw upstream lastUpdatedAt ISO string
   currentStation: string;
+  previousStation?: string;
   nextStation: string;
   lastReportedStation: string;
   direction: 'UP' | 'DN';
@@ -485,9 +516,11 @@ export interface LiveTrainPosition {
   distanceTravelledKm?: number;
   latitude?: number;
   longitude?: number;
+  position?: { lat: number; lng: number } | null;
   speedKmph: number;
   platform?: number | null;
   status: 'RUNNING' | 'AT_PLATFORM' | 'DEPARTED' | 'CANCELLED' | 'DIVERTED' | 'NOT_STARTED' | 'SCHEDULED' | string;
+  operationalStatus?: string;
   scheduledDeparture?: string;
   lastUpdated: string;
   upstreamUpdatedAt?: string;
@@ -498,6 +531,10 @@ export interface LiveTrainPosition {
   nextStationName?: string;
   currentStationName?: string;
   confidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+  locationConfidence?: LocationConfidence;
+  operationalUsability?: OperationalUsability;
+  route?: any[];
+  remainingRoute?: any[];
   routeGeometry?: Array<{ lat: number; lng: number; stationCode?: string; stationName?: string }>;
   // Train Lifecycle & Destination
   originStation?: string;
@@ -533,8 +570,11 @@ export interface NearbyTrainMovementIntelligence {
   track?: string;
   status: string;
   confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+  locationConfidence?: LocationConfidence;
+  operationalUsability?: OperationalUsability;
   interactionState: TrainMaintenanceInteractionState;
   conflictSeverity: 'HARD_CONFLICT' | 'POTENTIAL_CONFLICT' | 'ADVISORY' | 'NONE' | 'UNKNOWN';
+  conflictStatus?: ConflictStatus;
   conflictReason?: string;
   lastTelemetryTimestamp?: string;
 }
@@ -558,6 +598,8 @@ export interface LiveDataState {
   error: string | null;
   liveTrains: LiveTrainPosition[];
   stationBoards: Record<string, StationBoardEntry[]>;
+  activeCorridorKey?: string;
+  normalizedState?: NormalizedRailState;
 }
 
 export interface LiveConflictAlert {

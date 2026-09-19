@@ -1,0 +1,213 @@
+<USER_REQUEST>
+# RAIL SAMNVAY - IMMEDIATE RAILRADAR RESPONSE DIAGNOSIS
+
+The HTTP 429 error is no longer appearing.
+
+The current Live Trains screen now shows:
+
+* LIVE DATA UNAVAILABLE
+* Last Sync: 02:34:11 IST
+* Upstream Telemetry: 00:58:47 IST
+* Active Fleet: 0 Corridor Trains
+* RAILRADAR NOTICE: Train data unavailable
+
+DO NOT change the API key yet.
+
+We need to determine exactly what RailRadar is returning.
+
+## 1. LOG THE RAW UPSTREAM RESPONSE
+
+At the exact point where the backend receives the RailRadar HTTP response, temporarily log:
+
+* HTTP status
+* response headers except secrets
+* response body
+* response timestamp
+* endpoint name
+* number of records returned
+* provider/source field if present
+
+DO NOT log the API key or Authorization header.
+
+The raw response must be captured BEFORE:
+
+* corridor filtering
+* train filtering
+* normalization
+* deduplication
+* location validation
+* stale-data rejection
+* route validation
+
+## 2. DETERMINE WHICH CASE WE HAVE
+
+Classify the response into exactly one:
+
+A. HTTP success + valid live trains
+
+B. HTTP success + empty train list
+
+C. HTTP success + stale telemetry
+
+D. HTTP success + malformed/unexpected schema
+
+E. HTTP success + trains rejected by our normalization
+
+F. HTTP error other than 429
+
+G. Request timeout/network failure
+
+H. Authentication/authorization failure
+
+Do not convert all of these into generic "Train data unavailable".
+
+## 3. TRACE THE DATA PIPELINE
+
+Show:
+
+RAW RAILRADAR RESPONSE
+↓
+RAW RECORD COUNT
+↓
+CORRIDOR FILTER
+↓
+FILTERED RECORD COUNT
+↓
+NORMALIZATION
+↓
+NORMALIZED RECORD COUNT
+↓
+LOCATION VALIDATION
+↓
+FINAL LIVE TRAIN COUNT
+↓
+UI
+
+For example, if:
+
+Raw = 42
+Corridor = 0
+
+then the corridor filtering is the problem.
+
+If:
+
+Raw = 42
+Corridor = 18
+Normalized = 0
+
+then normalization is the problem.
+
+If:
+
+Raw = 42
+Normalized = 18
+Final = 0
+
+then location/freshness validation is the problem.
+
+DO NOT guess.
+
+## 4. CHECK THE TELEMETRY TIMEST
+<truncated 1669 bytes>
+etry differences
+* train-number formatting
+* division metadata differences
+
+## 8. CHECK NORMALIZATION
+
+For at least the first 3 raw trains returned by the provider, print:
+
+RAW:
+
+* train number
+* current station
+* next station
+* latitude
+* longitude
+* delay
+* status
+* timestamp
+* route
+
+NORMALIZED:
+
+* train number
+* current station
+* next station
+* latitude
+* longitude
+* delay
+* status
+* timestamp
+* route
+
+Identify every field that changes.
+
+## 9. TRAIN 12627
+
+If train 12627 exists in the raw provider response:
+
+trace it specifically.
+
+Show:
+
+RAW 12627
+→ FILTERED 12627
+→ NORMALIZED 12627
+→ STORE 12627
+→ UI 12627
+
+Do NOT hardcode any values.
+
+If the provider does not return 12627, explicitly report:
+
+12627 NOT PRESENT IN CURRENT UPSTREAM RESPONSE
+
+Do not manufacture a result.
+
+## 10. API KEY CHECK
+
+Only after the above diagnostic:
+
+If the provider response is:
+
+401 → inspect API key
+
+403 → inspect permissions/account access
+
+429 → inspect quota/rate limiting
+
+2xx with empty data → API key may be valid; investigate endpoint/query/filter
+
+2xx with stale data → investigate provider freshness
+
+2xx with valid trains but our UI shows zero → fix our processing pipeline
+
+DO NOT replace the API key simply because the UI says LIVE DATA UNAVAILABLE.
+
+## 11. FINAL OUTPUT
+
+After diagnosis, report exactly:
+
+1. HTTP status received
+2. Raw record count
+3. Filtered record count
+4. Normalized record count
+5. Final record count
+6. Newest telemetry timestamp
+7. Telemetry age
+8. Exact reason trains disappear
+9. Whether API key authentication succeeded
+10. Whether the API key needs replacement
+11. Exact raw 12627 status if present
+12. Exact normalized 12627 status if present
+
+Do not declare success based only on npm build.
+
+The purpose of this task is to identify exactly where the live train data disappears.
+
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-09-19T02:37:08+05:30.
+</ADDITIONAL_METADATA>

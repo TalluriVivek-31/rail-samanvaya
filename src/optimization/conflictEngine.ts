@@ -70,6 +70,8 @@ export interface DetailedConflictAnalysisResult {
   crossSectionAnalysis: CrossSectionAnalysis;
   corridorContext?: StationCorridorContext;
   hasConflict?: boolean;
+  conflictStatus?: 'CONFLICT' | 'NO_CONFLICT' | 'UNKNOWN';
+  requiresHumanVerification?: boolean;
   conflictDetails?: Array<{
     severity: 'HARD_CONFLICT' | 'SOFT_CONFLICT' | 'ADVISORY';
     train?: any;
@@ -149,7 +151,7 @@ export function analyzeLocationTrainConflicts(
   const crossSectionAnalysis = detectCrossSectionSpans(startKm, endKm);
 
   // Merge scheduled paths with live RailRadar train positions
-  const activeMovements: PlannedCorridorMovement[] = [...SCHEDULED_CORRIDOR_MOVEMENTS];
+  const activeMovements: (PlannedCorridorMovement & { isLive?: boolean })[] = SCHEDULED_CORRIDOR_MOVEMENTS.map(m => ({ ...m, isLive: false }));
 
   liveTrains.forEach(t => {
     let mins = 0;
@@ -170,6 +172,7 @@ export function analyzeLocationTrainConflicts(
       currentKm: t.currentKm,
       passageTimeAtZone: timeStr || `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`,
       timeMinutes: mins,
+      isLive: true
     });
   });
 
@@ -213,7 +216,10 @@ export function analyzeLocationTrainConflicts(
         restorationMinutes
       },
       qualityRating: 'OPTIMIZATION_FAILED',
-      crossSectionAnalysis
+      crossSectionAnalysis,
+      hasConflict: true,
+      conflictStatus: 'CONFLICT',
+      requiresHumanVerification: false
     };
   }
 
@@ -283,10 +289,12 @@ export function analyzeLocationTrainConflicts(
     recommended = candidates.find(c => c.isRecommended) || candidates[0];
   }
 
-  const conflictingTrainSummary = activeMovements.find(m => {
+  const liveMovementAtWorkZone = activeMovements.find(m => {
+    if (!m.isLive) return false;
     const matchesTrack = selectedTracks.some(t => m.track.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(m.track.toLowerCase()));
     return matchesTrack && m.currentKm != null && m.currentKm >= startKm - 0.5 && m.currentKm <= endKm + 0.5;
-  }) ? `${activeMovements[0].trainName} (${activeMovements[0].trainNumber})` : undefined;
+  });
+  const conflictingTrainSummary = liveMovementAtWorkZone ? `${liveMovementAtWorkZone.trainName} (${liveMovementAtWorkZone.trainNumber})` : undefined;
 
   // Validate the requested/entered time against corridor timetable & RailRadar
   let requestedWindowAnalysis: CandidatePlanningWindow | undefined;
@@ -303,11 +311,17 @@ export function analyzeLocationTrainConflicts(
         const matchesTrack = selectedTracks.some(t => m.track.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(m.track.toLowerCase()));
         if (!matchesTrack) return false;
         const timeOverlap = m.timeMinutes > reqStartMins - headwayBuffer && m.timeMinutes < reqEndMins + headwayBuffer;
-        const physicalOccupancy = m.currentKm != null && m.currentKm >= startKm - 0.5 && m.currentKm <= endKm + 0.5;
+        const physicalOccupancy = m.isLive === true && m.currentKm != null && m.currentKm >= startKm - 0.5 && m.currentKm <= endKm + 0.5;
         return timeOverlap || physicalOccupancy;
       });
 
       const hasConflict = Boolean(conflictingMovement);
+      let reqStatus: 'CONFLICT' | 'FEASIBLE' | 'UNKNOWN' = 'FEASIBLE';
+      if (hasConflict) {
+        reqStatus = 'CONFLICT';
+      } else if (!hasLiveTelemetry || isLiveDataStale || (dataSource as string) === 'UNAVAILABLE') {
+        reqStatus = 'UNKNOWN';
+      }
 
       requestedWindowAnalysis = {
         slotId: 'SLOT-REQUESTED-CUSTOM',
@@ -318,7 +332,7 @@ export function analyzeLocationTrainConflicts(
         durationMinutes: totalRequiredPossessionMinutes,
         required_duration: totalRequiredPossessionMinutes,
         available_duration: totalRequiredPossessionMinutes,
-        status: hasConflict ? 'CONFLICT' : 'FEASIBLE',
+        status: reqStatus,
         conflictingTrain: hasConflict && conflictingMovement ? {
           trainNumber: conflictingMovement.trainNumber,
           trainName: conflictingMovement.trainName,
@@ -327,25 +341,44 @@ export function analyzeLocationTrainConflicts(
         } : undefined,
         reason: hasConflict && conflictingMovement
           ? `Headway Conflict: ${conflictingMovement.trainName} (${conflictingMovement.trainNumber}) scheduled passage at ${conflictingMovement.passageTimeAtZone} violates ${headwayBuffer}-min planning safety margin.`
-          : hasLiveTelemetry
+          : hasLiveTelemetry && !isLiveDataStale
           ? `Requested time window ${requestedTime}–${reqEndTimeStr} is clear with ${headwayBuffer}-min safety buffers verified against live RailRadar movements & timetable.`
-          : `Requested time window ${requestedTime}–${reqEndTimeStr} matches scheduled timetable paths. NOTE: Live train data is unavailable; operational conflict analysis cannot be fully guaranteed without live telemetry.`
+          : `Requested time window ${requestedTime}–${reqEndTimeStr} status UNKNOWN: Live train telemetry is unavailable or stale. Human operational verification required before authorization.`
       };
     }
   }
 
-  const hasOverallConflict = Boolean(conflictingTrainSummary || candidates.some(c => c.status === 'CONFLICT') || requestedWindowAnalysis?.status === 'CONFLICT');
+  const hasTargetConflict = requestedWindowAnalysis
+    ? (requestedWindowAnalysis.status === 'CONFLICT' || Boolean(conflictingTrainSummary))
+    : (Boolean(conflictingTrainSummary) || recommended?.status === 'CONFLICT');
+
   const conflictDetails = [
     ...candidates.filter(c => c.status === 'CONFLICT').map(c => ({ severity: 'HARD_CONFLICT' as const, train: c.conflictingTrain, reason: c.reason })),
     ...(requestedWindowAnalysis?.status === 'CONFLICT' && requestedWindowAnalysis.conflictingTrain ? [{ severity: 'HARD_CONFLICT' as const, train: requestedWindowAnalysis.conflictingTrain, reason: requestedWindowAnalysis.reason }] : [])
   ];
+
+  // Critical safety invariant: UNKNOWN ≠ NO_CONFLICT
+  // If telemetry is unavailable, stale, or marked UNAVAILABLE: conflictStatus MUST be 'UNKNOWN'
+  let conflictStatus: 'CONFLICT' | 'NO_CONFLICT' | 'UNKNOWN';
+  let requiresHumanVerification = false;
+
+  if (hasTargetConflict) {
+    conflictStatus = 'CONFLICT';
+  } else if (!hasLiveTelemetry || isLiveDataStale || (dataSource as string) === 'UNAVAILABLE' || (requestedWindowAnalysis && requestedWindowAnalysis.status === 'UNKNOWN')) {
+    conflictStatus = 'UNKNOWN';
+    requiresHumanVerification = true;
+  } else {
+    conflictStatus = 'NO_CONFLICT';
+  }
 
   return {
     candidateWindows: candidates,
     recommendedWindow: recommended,
     requestedWindowAnalysis,
     conflictingTrainSummary,
-    hasConflict: hasOverallConflict,
+    hasConflict: hasTargetConflict,
+    conflictStatus,
+    requiresHumanVerification,
     conflictDetails,
     isDurationImpossible: false,
     longestFeasibleWindowMinutes: MAX_POSSIBLE_CORRIDOR_WINDOW,

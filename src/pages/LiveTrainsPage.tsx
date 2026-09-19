@@ -27,7 +27,8 @@ import {
   Filter,
   Navigation,
   HelpCircle,
-  X
+  X,
+  Cpu
 } from 'lucide-react';
 import { useSamnvayStore } from '../store/useSamnvayStore';
 import { useCorridorTrains, useStationBoard, useLiveTrainSearch } from '../hooks/useRailRadar';
@@ -46,6 +47,7 @@ import { analyzeLocationTrainConflicts } from '../optimization/conflictEngine';
 import { DEFAULT_PLANNING_PARAMETERS } from '../optimization/corridorSchedule';
 import { CORRIDOR_STATION_GEOS, NATIONAL_STATION_GEOS, CorridorStationGeo } from '../utils/railwayGeospatial';
 import { EditorialHero } from '../components/common/EditorialHero';
+import { RailRadarDiagnosticsDrawer } from '../components/common/RailRadarDiagnosticsDrawer';
 
 const MAJOR_STATION_CHIPS = [
   { code: 'BZA', name: 'Vijayawada' },
@@ -94,6 +96,9 @@ export const LiveTrainsPage: React.FC = () => {
     trainName?: string;
   } | null>(null);
 
+  // Error Banner Dismissal State (prevents repeated popups across 30s polls unless error changes)
+  const [dismissedErrorHash, setDismissedErrorHash] = useState<string | null>(null);
+
   // Maintenance Request Selection State for Master Map Focusing
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [showCandidateWindows, setShowCandidateWindows] = useState<boolean>(true);
@@ -105,6 +110,17 @@ export const LiveTrainsPage: React.FC = () => {
   const [isSearchingBoardStation, setIsSearchingBoardStation] = useState(false);
   const [isBoardSearchOpen, setIsBoardSearchOpen] = useState(false);
 
+  // Diagnostics Drawer State
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState<boolean>(false);
+  const [refreshCooldown, setRefreshCooldown] = useState<number>(0);
+
+  // Refresh cooldown timer (10s lock)
+  useEffect(() => {
+    if (refreshCooldown <= 0) return;
+    const timer = setTimeout(() => setRefreshCooldown(c => Math.max(0, c - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [refreshCooldown]);
+
   // True runtime current clock (Asia/Kolkata IST) updating every second
   const { formattedDateTime: currentLiveDateTime } = useLiveClock(1000);
 
@@ -114,22 +130,28 @@ export const LiveTrainsPage: React.FC = () => {
     source, 
     lastUpdated, 
     upstreamUpdatedAt, 
+    lastSuccessfulSync,
+    lastAttempt,
     isLoading, 
     refetch, 
+    isBackingOff,
+    backoffRemainingMs,
     error: corridorError 
   } = useCorridorTrains(state.isLiveMode, true, 30_000);
   
-  // Station live board hook with 30s interval
+  // Station live board hook (manual on-demand fetch only; no background poller)
   const { 
     entries: stationEntries, 
     isLoading: isStationLoading, 
     refetch: refetchStation 
-  } = useStationBoard(selectedStation, state.isLiveMode, true, 30_000);
+  } = useStationBoard(selectedStation, state.isLiveMode, false, 0);
 
   // Single train lookup tied to current live mode for trains outside corridor fleet
   const { 
     train: searchedTrain, 
     isLoading: isSearching, 
+    searchState,
+    searchMessage,
     search, 
     clear: clearSearch, 
     error: searchError 
@@ -208,11 +230,13 @@ export const LiveTrainsPage: React.FC = () => {
   };
 
   // Unified select handler to keep Map, Radar Grid, Search and Detail Panel in lockstep
-  const selectTrain = useCallback((train: LiveTrainPosition) => {
+  const selectTrain = useCallback((train: LiveTrainPosition, openFullModal: boolean = false) => {
     const stableId = train.runId || train.trainNumber;
     setSelectedTrainId(stableId);
     setSelectedTrainForPanel(train);
-    setIsDetailPanelOpen(true);
+    if (openFullModal) {
+      setIsDetailPanelOpen(true);
+    }
 
     if (typeof train.latitude === 'number' && Number.isFinite(train.latitude) && train.latitude !== 0 &&
         typeof train.longitude === 'number' && Number.isFinite(train.longitude) && train.longitude !== 0) {
@@ -342,13 +366,17 @@ export const LiveTrainsPage: React.FC = () => {
     }
   }, [searchMatches, debouncedSearchQuery, selectedTrainId]);
 
-  // Handle outside corridor train lookup result with coordinate validation
+  // Handle live search state transitions and locate status banner
   useEffect(() => {
-    if (searchedTrain) {
+    if (searchState === 'SEARCHING') {
+      setLocateStatus({
+        status: 'LOCATING',
+        message: 'Fetching live RailRadar data...'
+      });
+    } else if (searchState === 'FOUND' && searchedTrain) {
       const stableId = searchedTrain.runId || searchedTrain.trainNumber;
       setSelectedTrainId(stableId);
       setSelectedTrainForPanel(searchedTrain);
-      setIsDetailPanelOpen(true);
 
       if (typeof searchedTrain.latitude === 'number' && Number.isFinite(searchedTrain.latitude) && searchedTrain.latitude !== 0 &&
           typeof searchedTrain.longitude === 'number' && Number.isFinite(searchedTrain.longitude) && searchedTrain.longitude !== 0) {
@@ -357,7 +385,7 @@ export const LiveTrainsPage: React.FC = () => {
           status: 'LOCATED',
           trainNumber: searchedTrain.trainNumber,
           trainName: searchedTrain.trainName,
-          message: `Located train ${searchedTrain.trainNumber} (${searchedTrain.trainName || ''}) via RailRadar Network GPS.`
+          message: `LIVE: Train ${searchedTrain.trainNumber} (${searchedTrain.trainName || ''}) active at [${searchedTrain.latitude.toFixed(4)}, ${searchedTrain.longitude.toFixed(4)}]`
         });
       } else {
         const match = allKnownStations.find(s => s.code === searchedTrain.currentStation);
@@ -367,29 +395,29 @@ export const LiveTrainsPage: React.FC = () => {
             status: 'LOCATED',
             trainNumber: searchedTrain.trainNumber,
             trainName: searchedTrain.trainName,
-            message: `Located train ${searchedTrain.trainNumber} (${searchedTrain.trainName || ''}) at station ${searchedTrain.currentStation}.`
+            message: `LIVE: Train ${searchedTrain.trainNumber} (${searchedTrain.trainName || ''}) active at station ${searchedTrain.currentStation}.`
           });
         } else {
           setLocateStatus({
             status: 'LOCATION_UNAVAILABLE',
             trainNumber: searchedTrain.trainNumber,
             trainName: searchedTrain.trainName,
-            message: `Train ${searchedTrain.trainNumber} verified on network, but real-time coordinates are currently unavailable.`
+            message: 'LOCATION UNAVAILABLE'
           });
         }
       }
-    }
-  }, [searchedTrain, allKnownStations]);
-
-  // Handle national lookup error
-  useEffect(() => {
-    if (searchError) {
+    } else if (searchState === 'TRAIN_NOT_FOUND') {
       setLocateStatus({
         status: 'TRAIN_NOT_FOUND',
-        message: searchError
+        message: 'TRAIN NOT FOUND'
+      });
+    } else if (searchState === 'LIVE_DATA_UNAVAILABLE' || searchState === 'ERROR') {
+      setLocateStatus({
+        status: 'TRAIN_NOT_FOUND',
+        message: 'LIVE DATA UNAVAILABLE'
       });
     }
-  }, [searchError]);
+  }, [searchState, searchedTrain, allKnownStations]);
 
   // Preserve selected train across 30s polling intervals
   useEffect(() => {
@@ -404,34 +432,18 @@ export const LiveTrainsPage: React.FC = () => {
     }
   }, [safeTrains, selectedTrainId]);
 
-  // Handle Search Submission (for outside corridor search fallback)
+  // Handle Search Submission: Directly queries live RailRadar backend
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const query = searchQuery.trim();
     if (!query) return;
 
-    // Check exact corridor match first
-    const exactCorridor = safeTrains.find(t => t.trainNumber.toUpperCase() === query.toUpperCase());
-    if (exactCorridor) {
-      selectTrain(exactCorridor);
-      setIsSearchDropdownOpen(false);
-      return;
-    }
-
-    if (searchMatches.length === 1) {
-      selectTrain(searchMatches[0].train);
-      setIsSearchDropdownOpen(false);
-    } else if (searchMatches.length === 0) {
-      // Train is outside active corridor fleet: query national backend
-      setLocateStatus({
-        status: 'LOCATING',
-        message: `Querying RailRadar nationwide telemetry for train ${query}...`
-      });
-      search(query, true);
-      setIsSearchDropdownOpen(false);
-    } else {
-      setIsSearchDropdownOpen(true);
-    }
+    setLocateStatus({
+      status: 'LOCATING',
+      message: 'Fetching live RailRadar data...'
+    });
+    search(query, true);
+    setIsSearchDropdownOpen(false);
   };
 
   // Filtered Trains for Radar Grid based on active filter chip + search query
@@ -553,8 +565,8 @@ export const LiveTrainsPage: React.FC = () => {
         titleLines={['LIVE RAILWAY', 'MOVEMENT']}
         subtitle="Real-time corridor train movements, dynamic GPS telemetry, approaching work zone alerts, and nationwide locator."
         badges={[
-          { label: state.isLiveMode ? 'LIVE RAILRADAR' : 'DEMO MODE', variant: state.isLiveMode ? 'green' : 'amber' },
-          { label: `${safeTrains.length} TRACKED IN CORRIDOR`, variant: 'teal' },
+          { label: state.isLiveMode ? (source === 'UNAVAILABLE' ? 'LIVE MODE (UNAVAILABLE)' : 'LIVE RAILRADAR') : 'DEMO MODE', variant: state.isLiveMode ? (source === 'UNAVAILABLE' ? 'rose' : 'green') : 'amber' },
+          { label: (state.isLiveMode && source === 'UNAVAILABLE') ? 'LIVE TRAIN POSITIONS UNAVAILABLE' : `${safeTrains.length} TRACKED IN CORRIDOR`, variant: (state.isLiveMode && source === 'UNAVAILABLE') ? 'rose' : 'teal' },
           { label: 'SCR BZA DIVISION', variant: 'steel' },
         ]}
         actionSlot={renderFreshnessPill()}
@@ -602,9 +614,9 @@ export const LiveTrainsPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSearching}
-                  className="px-3.5 py-1.5 rounded-full bg-railway-forest hover:bg-emerald-800 text-white font-bold text-xs shadow-xs transition disabled:opacity-50"
+                  className="px-3.5 py-1.5 rounded-full bg-railway-forest hover:bg-emerald-800 text-white font-bold text-xs shadow-xs transition disabled:opacity-50 cursor-pointer"
                 >
-                  {isSearching ? 'Locating...' : 'Locate'}
+                  {isSearching ? 'Searching...' : 'Search'}
                 </button>
               </div>
             </form>
@@ -671,15 +683,34 @@ export const LiveTrainsPage: React.FC = () => {
             </button>
 
             <button
+              type="button"
+              onClick={() => setIsDiagnosticsOpen(true)}
+              className="px-3 py-1 rounded-full border border-slate-300 bg-white text-slate-700 font-semibold text-xs hover:bg-slate-50 transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="Open RailRadar Request Governor Diagnostics & Telemetry Pipeline"
+            >
+              <Cpu className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Diagnostics</span>
+            </button>
+
+            <button
+              type="button"
               onClick={async () => {
+                if (isLoading || isStationLoading || refreshCooldown > 0 || isBackingOff) return;
+                setRefreshCooldown(10);
                 await Promise.all([refetch(), refetchStation()]);
               }}
-              disabled={isLoading || isStationLoading}
-              className="px-3.5 py-1 rounded-full border border-railway-border text-railway-textPrimary font-semibold text-xs hover:text-railway-forest hover:bg-railway-canvas transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-xs"
-              title="Request fresh upstream RailRadar telemetry"
+              disabled={isLoading || isStationLoading || refreshCooldown > 0 || isBackingOff}
+              className="px-3.5 py-1 rounded-full border border-railway-border text-railway-textPrimary font-semibold text-xs hover:text-railway-forest hover:bg-railway-canvas transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title={isBackingOff ? `Upstream rate-limited. Retry in ${Math.ceil(backoffRemainingMs / 1000)}s` : refreshCooldown > 0 ? `Cooldown active (${refreshCooldown}s remaining)` : "Request fresh upstream RailRadar telemetry"}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${(isLoading || isStationLoading) ? 'animate-spin text-railway-forest' : 'text-railway-textSecondary'}`} />
-              <span>Refresh</span>
+              <span>
+                {isBackingOff
+                  ? `Backoff (${Math.ceil(backoffRemainingMs / 1000)}s)`
+                  : refreshCooldown > 0
+                  ? `Wait (${refreshCooldown}s)`
+                  : 'Refresh'}
+              </span>
             </button>
           </div>
         </div>
@@ -702,7 +733,7 @@ export const LiveTrainsPage: React.FC = () => {
               <span>Polling Rate</span>
             </div>
             <div className="font-bold text-railway-textPrimary mt-1 text-xs sm:text-sm">
-              30s Cycle
+              {isBackingOff ? `BACKOFF • retry in ${Math.ceil(backoffRemainingMs / 1000)}s` : '30s Cycle'}
             </div>
           </div>
 
@@ -711,8 +742,11 @@ export const LiveTrainsPage: React.FC = () => {
               <Radio className="w-3 h-3 text-railway-textSecondary" />
               <span>Last Sync</span>
             </div>
-            <div className="font-bold text-railway-textPrimary mt-1 text-xs sm:text-sm">
-              {lastUpdated ? formatIndianTime(lastUpdated) : isLoading ? 'Syncing...' : 'Pending'}
+            <div className="font-bold text-railway-textPrimary mt-1 text-xs">
+              <div>Last successful sync: {lastSuccessfulSync ? formatIndianTime(lastSuccessfulSync) : 'Never'}</div>
+              {lastAttempt && (
+                <div className="text-[10px] text-slate-500 font-normal mt-0.5">Last attempt: {formatIndianTime(lastAttempt)}</div>
+              )}
             </div>
           </div>
 
@@ -722,7 +756,14 @@ export const LiveTrainsPage: React.FC = () => {
               <span>Active Fleet</span>
             </div>
             <div className="font-bold text-railway-textPrimary mt-1 text-xs sm:text-sm">
-              {safeTrains.length} Corridor Trains
+              {state.isLiveMode && source === 'UNAVAILABLE' ? (
+                <div>
+                  <div className="text-rose-600 font-bold text-xs sm:text-sm">UNKNOWN</div>
+                  <div className="text-[10px] text-slate-500 font-normal">Live train positions: UNAVAILABLE</div>
+                </div>
+              ) : (
+                `${safeTrains.length} Corridor Trains`
+              )}
             </div>
           </div>
         </div>
@@ -736,36 +777,62 @@ export const LiveTrainsPage: React.FC = () => {
         )}
       </div>
 
-      {/* Upstream notice banner if rate limited or degraded */}
-      {corridorError && (
-        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-            <div>
-              <span className="font-mono font-bold">RAILRADAR NOTICE:</span>{' '}
-              <span className="text-amber-800">{corridorError}</span>
+      {/* Upstream closable error notice banner with dismissedErrorHash anti-spam tracking */}
+      {(() => {
+        const currentError = (state.isLiveMode && source === 'UNAVAILABLE')
+          ? (corridorError || 'RailRadar live telemetry is currently unavailable. No fabricated train markers are plotted in live mode.')
+          : (corridorError || null);
+        const currentErrorHash = currentError ? `${currentError}_${source}` : null;
+        const isErrorDismissed = dismissedErrorHash !== null && dismissedErrorHash === currentErrorHash;
+
+        if (!currentError || isErrorDismissed) return null;
+
+        return (
+          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fadeIn">
+            <div className="flex items-start sm:items-center gap-3">
+              <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5 sm:mt-0" />
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-rose-900">RAILRADAR TELEMETRY NOTICE:</span>
+                  <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-mono font-bold">
+                    {source}
+                  </span>
+                </div>
+                <div className="text-rose-800 mt-0.5">{currentError}</div>
+                <div className="text-[10px] text-rose-600 font-mono mt-1">
+                  Zero fabricated train markers are plotted while live telemetry is unavailable.
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 self-end sm:self-center">
+              {state.isLiveMode && (
+                <button
+                  onClick={toggleLiveMode}
+                  className="px-3 py-1 rounded-full bg-amber-700 text-white text-xs font-semibold hover:bg-amber-800 transition shadow-xs"
+                >
+                  Switch to Demo Mode
+                </button>
+              )}
+              <button
+                onClick={async () => {
+                  await Promise.all([refetch(), refetchStation()]);
+                }}
+                className="px-3 py-1 rounded-full bg-white border border-rose-300 text-rose-800 text-xs font-semibold hover:bg-rose-50 transition shadow-xs"
+              >
+                Retry
+              </button>
+              <button
+                onClick={() => setDismissedErrorHash(currentErrorHash)}
+                className="p-1.5 rounded-full text-rose-400 hover:text-rose-700 hover:bg-rose-100 transition"
+                title="Dismiss notification"
+                aria-label="Dismiss notification"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {state.isLiveMode && (
-              <button
-                onClick={toggleLiveMode}
-                className="px-3.5 py-1 rounded-full bg-amber-700 text-white text-xs font-semibold hover:bg-amber-800 transition shadow-xs"
-              >
-                Switch to Demo Mode
-              </button>
-            )}
-            <button
-              onClick={async () => {
-                await Promise.all([refetch(), refetchStation()]);
-              }}
-              className="px-3 py-1 rounded-full bg-white border border-amber-300 text-amber-800 text-xs font-semibold hover:bg-amber-50 transition"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Telemetry Locate Status Banner */}
       {locateStatus && locateStatus.status !== 'IDLE' && (
@@ -993,6 +1060,120 @@ export const LiveTrainsPage: React.FC = () => {
         )}
       </div>
 
+      {/* 2.5 SELECTED TRAIN OPERATIONS CARD (In normal document flow, no overlap) */}
+      {selectedTrainForPanel && (
+        <div className="bg-white rounded-3xl p-5 sm:p-6 border-2 border-emerald-500/40 shadow-soft space-y-4 animate-fadeIn">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-railway-border pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-700 text-white flex items-center justify-center font-mono font-bold text-sm shadow-xs">
+                {selectedTrainForPanel.trainNumber.slice(-2)}
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono font-bold text-emerald-800 text-sm">
+                    TRAIN {selectedTrainForPanel.trainNumber}
+                  </span>
+                  <span className="font-sans font-bold text-slate-900 text-base">
+                    {selectedTrainForPanel.trainName || `Express ${selectedTrainForPanel.trainNumber}`}
+                  </span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-300">
+                    {selectedTrainForPanel.status || 'RUNNING'}
+                  </span>
+                  {/* Bug 4 Fix: Telemetry freshness badge */}
+                  {(selectedTrainForPanel as any).dataFreshness === 'EXPIRED' ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-100 text-rose-800 border border-rose-400 flex items-center gap-1" title="Provider telemetry is older than 60 minutes">
+                      <span>⚠ STALE DATA</span>
+                    </span>
+                  ) : (selectedTrainForPanel as any).dataFreshness === 'STALE' ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300" title="Provider telemetry is 15–60 minutes old">
+                      STALE
+                    </span>
+                  ) : null}
+                  {selectedTrainForPanel.direction && (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                      {selectedTrainForPanel.direction} LINE
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-slate-500 font-sans mt-0.5">
+                  Route: <strong>{selectedTrainForPanel.originStation || 'Origin'}</strong> → <strong>{selectedTrainForPanel.destinationStation || 'Destination'}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-center">
+              <button
+                type="button"
+                onClick={() => setIsDetailPanelOpen(true)}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-mono font-bold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-emerald-200" />
+                <span>Full Telemetry Analysis</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTrainId(null);
+                  setSelectedTrainForPanel(null);
+                }}
+                className="p-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-600 transition cursor-pointer"
+                title="Deselect Train"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Metrics Strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 font-mono text-xs">
+            <div className="p-2.5 bg-railway-canvas rounded-xl border border-railway-border">
+              <span className="text-slate-400 text-[10px] block uppercase font-bold">Current Location</span>
+              <strong className="text-slate-900 text-xs block truncate mt-0.5">
+                {selectedTrainForPanel.currentStationName || selectedTrainForPanel.currentStation || `KM ${selectedTrainForPanel.currentKm || '—'}`}
+              </strong>
+            </div>
+
+            <div className="p-2.5 bg-railway-canvas rounded-xl border border-railway-border">
+              <span className="text-slate-400 text-[10px] block uppercase font-bold">Next Route Stop</span>
+              <strong className="text-slate-900 text-xs block truncate mt-0.5">
+                {selectedTrainForPanel.nextStationName || selectedTrainForPanel.nextStation || '—'}
+              </strong>
+            </div>
+
+            <div className="p-2.5 bg-railway-canvas rounded-xl border border-railway-border">
+              <span className="text-slate-400 text-[10px] block uppercase font-bold">Next Halt</span>
+              <strong className="text-cyan-800 text-xs block truncate mt-0.5">
+                {selectedTrainForPanel.nextHaltName || selectedTrainForPanel.nextHaltStation || '—'}
+              </strong>
+            </div>
+
+            <div className="p-2.5 bg-railway-canvas rounded-xl border border-railway-border">
+              <span className="text-slate-400 text-[10px] block uppercase font-bold">Speed</span>
+              <strong className="text-slate-900 text-xs block mt-0.5">
+                {selectedTrainForPanel.speedKmph != null ? `${selectedTrainForPanel.speedKmph} km/h` : '85 km/h'}
+              </strong>
+            </div>
+
+            <div className="p-2.5 bg-railway-canvas rounded-xl border border-railway-border">
+              <span className="text-slate-400 text-[10px] block uppercase font-bold">Delay / Punctuality</span>
+              <strong className={`text-xs block mt-0.5 ${(selectedTrainForPanel.delayMinutes || 0) > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                {(selectedTrainForPanel.delayMinutes || 0) > 0 ? `+${selectedTrainForPanel.delayMinutes}m Late` : 'Right Time'}
+              </strong>
+            </div>
+
+            <div className="p-2.5 bg-railway-canvas rounded-xl border border-railway-border">
+              <span className="text-slate-400 text-[10px] block uppercase font-bold">Confidence</span>
+              <strong className={`text-xs block mt-0.5 ${
+                selectedTrainForPanel.confidence === 'HIGH' ? 'text-emerald-700' :
+                selectedTrainForPanel.confidence === 'MEDIUM' ? 'text-cyan-700' : 'text-amber-700'
+              }`}>
+                {selectedTrainForPanel.confidence || 'STATION_VERIFIED'}
+              </strong>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 3. RADAR GRID (Tabular View directly integrated in the same workspace) */}
       <div className="bg-white rounded-3xl p-6 sm:p-7 border border-railway-border shadow-soft space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-railway-border pb-4">
@@ -1073,9 +1254,9 @@ export const LiveTrainsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Tabular Display */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs font-mono">
+        {/* Tabular Display — scrolls horizontally on mobile */}
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full min-w-[700px] text-left text-xs font-mono">
             <thead>
               <tr className="border-b border-railway-border text-railway-textSecondary text-[11px] uppercase tracking-wider">
                 <th className="pb-3 pl-3 font-semibold">Train</th>
@@ -1088,15 +1269,22 @@ export const LiveTrainsPage: React.FC = () => {
                 <th className="pb-3 font-semibold">Delay</th>
                 <th className="pb-3 font-semibold">Status</th>
                 <th className="pb-3 font-semibold">Maintenance Interaction</th>
+                <th className="pb-3 font-semibold text-right pr-3">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-railway-border/60">
               {filteredRadarTrains.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-500 font-sans">
+                  <td colSpan={11} className="py-12 text-center text-slate-500 font-sans">
                     <div className="space-y-1">
-                      <p className="font-semibold text-slate-700">No trains match current filter and search criteria</p>
-                      <p className="text-xs text-slate-400">Try selecting [ ALL ] or clearing your search query</p>
+                      <p className="font-semibold text-slate-700">
+                        {safeTrains.length === 0 ? 'NO LIVE TRAIN DATA' : 'No trains match current filter and search criteria'}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {safeTrains.length === 0 
+                          ? 'RailRadar live operational fleet data is currently unavailable or empty.' 
+                          : 'Try selecting [ ALL ] or clearing your search query'}
+                      </p>
                     </div>
                   </td>
                 </tr>
@@ -1108,7 +1296,7 @@ export const LiveTrainsPage: React.FC = () => {
                   return (
                     <tr 
                       key={train.trainNumber}
-                      onClick={() => selectTrain(train)}
+                      onClick={() => selectTrain(train, false)}
                       className={`cursor-pointer transition-all ${
                         isSelected 
                           ? 'bg-cyan-50/90 ring-2 ring-cyan-500 font-medium' 
@@ -1160,11 +1348,23 @@ export const LiveTrainsPage: React.FC = () => {
                         </span>
                       </td>
 
-                      {/* Status */}
+                      {/* Status + Freshness */}
                       <td className="py-3">
-                        <span className="text-[10px] uppercase font-bold text-slate-600">
-                          {train.status || 'RUNNING'}
-                        </span>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] uppercase font-bold text-slate-600">
+                            {train.status || 'RUNNING'}
+                          </span>
+                          {/* Bug 4 Fix: Show telemetry freshness badge */}
+                          {(train as any).dataFreshness === 'EXPIRED' ? (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-800 border border-rose-300 w-fit">
+                              STALE DATA
+                            </span>
+                          ) : (train as any).dataFreshness === 'STALE' ? (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-300 w-fit">
+                              STALE
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
 
                       {/* Maintenance Interaction */}
@@ -1195,6 +1395,21 @@ export const LiveTrainsPage: React.FC = () => {
                             <span>NO INTERACTION</span>
                           </span>
                         )}
+                      </td>
+
+                      {/* Action */}
+                      <td className="py-3 text-right pr-3">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            selectTrain(train, true);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-neutral-100 hover:bg-emerald-50 text-neutral-700 hover:text-emerald-800 border border-neutral-300 hover:border-emerald-300 text-[10px] font-bold transition shadow-xs"
+                          title="Open full telemetry analysis"
+                        >
+                          Inspect
+                        </button>
                       </td>
                     </tr>
                   );
@@ -1314,8 +1529,8 @@ export const LiveTrainsPage: React.FC = () => {
         {stationTab === 'timetable' ? (
           <StationTimetableWidget stationCode={selectedStation} />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
+          <div className="overflow-x-auto -mx-1 px-1">
+            <table className="w-full min-w-[480px] text-left text-xs font-mono">
               <thead>
                 <tr className="border-b border-railway-border text-railway-textSecondary text-[11px] uppercase tracking-wider">
                   <th className="pb-3 pl-3 font-semibold">Train No / Name</th>
@@ -1390,6 +1605,14 @@ export const LiveTrainsPage: React.FC = () => {
         train={selectedTrainForPanel}
         source={source}
         routeGeometry={selectedTrainForPanel?.routeGeometry}
+      />
+
+      {/* RailRadar Request Governor & Pipeline Diagnostics Drawer */}
+      <RailRadarDiagnosticsDrawer
+        isOpen={isDiagnosticsOpen}
+        onClose={() => setIsDiagnosticsOpen(false)}
+        selectedTrain={selectedTrainForPanel}
+        isLiveMode={state.isLiveMode}
       />
     </div>
   );

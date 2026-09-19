@@ -180,9 +180,9 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
       </div>
 
       {/* 3. Primary Operations Grid (Asymmetric Editorial Layout) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left 7 Columns: Actionable Operations Board */}
-        <div className="lg:col-span-7 space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6">
+        {/* Left: Actionable Operations Board */}
+        <div className="md:col-span-1 lg:col-span-7 space-y-6">
           {/* Card: Operational Priority / Attention Required */}
           <div className="bg-white rounded-3xl border border-[#E8E6DF] p-6 shadow-sm">
             <div className="flex items-center justify-between border-b border-[#E8E6DF] pb-4 mb-4">
@@ -288,8 +288,8 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
               </button>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto -mx-1 px-1">
+              <table className="w-full min-w-[480px] text-left text-xs">
                 <thead>
                   <tr className="border-b border-[#E8E6DF] text-[#546A7B] text-[10px] font-extrabold uppercase tracking-wider">
                     <th className="pb-3">Work Requisition</th>
@@ -340,7 +340,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
         </div>
 
         {/* Right 5 Columns: Corridor HUD & Live Telemetry */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="md:col-span-1 lg:col-span-5 space-y-6">
           {/* Card: Corridor Topology & Health */}
           <div className="bg-white rounded-3xl border border-[#E8E6DF] p-6 shadow-sm space-y-4">
             <div className="flex items-center justify-between border-b border-[#E8E6DF] pb-3">

@@ -13,6 +13,28 @@
     background-image: radial-gradient(circle, rgba(255, 255, 255, 0.22) 1px, transparent 1px);
     background-size: 24px 24px;
   }
+
+  /* Safe area support for iOS home indicator / notch */
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Prevent text resize on orientation change in iOS */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Remove default tap highlight on mobile */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Smooth scrolling on iOS */
+  .overflow-y-auto,
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 @keyframes floatSlow1 {

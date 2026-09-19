@@ -251,9 +251,27 @@ export const LiveTrainDetailPanel: React.FC<LiveTrainDetailPanelProps> = ({
     }
   };
 
+  // Keyboard ESC listener for clean dismissal
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen || !train) return null;
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
-      <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-xl w-full border border-railway-border shadow-2xl space-y-4 font-mono max-h-[90vh] overflow-y-auto">
+    <div 
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn"
+    >
+      <div 
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-3xl p-6 sm:p-7 max-w-xl w-full border border-railway-border shadow-2xl space-y-4 font-mono max-h-[85vh] overflow-y-auto"
+      >
         {/* Header */}
         <div className="flex items-start justify-between border-b border-railway-border pb-4">
           <div className="space-y-1">

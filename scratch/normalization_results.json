@@ -1,0 +1,1380 @@
+{
+  "12627": {
+    "httpStatus": 200,
+    "success": true,
+    "source": "LIVE",
+    "train": {
+      "trainId": "12627-20260917-RUN-1",
+      "trainNumber": "12627",
+      "isLive": true,
+      "trainName": "Karnataka Express",
+      "runId": null,
+      "journeyId": null,
+      "serviceDate": "2026-09-17",
+      "originDate": "2026-09-17",
+      "startDate": "2026-09-17",
+      "telemetryTimestamp": "2026-09-19T03:20:32+05:30",
+      "sourceTimestamp": "2026-09-19T03:20:32+05:30",
+      "retrievedAt": "2026-09-18T21:51:06.583Z",
+      "runningStatus": "RUNNING",
+      "operationalStatus": "RUNNING",
+      "status": "RUNNING",
+      "delayMinutes": 20,
+      "delaySeconds": 1200,
+      "currentRouteStation": {
+        "code": "VGLJ",
+        "name": "Veerangana Lakshmibai Jhansi",
+        "sequence": 247,
+        "status": "departed"
+      },
+      "nextRouteStation": {
+        "code": "KRQ",
+        "name": "Karari",
+        "sequence": 248,
+        "isHalt": false
+      },
+      "previousRouteStation": {
+        "code": "BJI",
+        "name": "Bijauli",
+        "sequence": 246,
+        "isHalt": false
+      },
+      "previousHalt": {
+        "code": "BINA",
+        "name": "Bina Jn",
+        "sequence": 228,
+        "distanceKm": 1832.4
+      },
+      "nextHalt": {
+        "code": "GWL",
+        "name": "Gwalior Jn",
+        "sequence": 259,
+        "distanceKm": 2083.1
+      },
+      "currentStation": "VGLJ",
+      "currentStationName": "Veerangana Lakshmibai Jhansi",
+      "previousStation": "BINA",
+      "nextStation": "KRQ",
+      "nextStationName": "Karari",
+      "nextHaltStation": "GWL",
+      "nextHaltName": "Gwalior Jn",
+      "nextHaltEta": "04:28",
+      "lastReportedStation": "BINA",
+      "direction": "UP",
+      "speedKmph": 87,
+      "speedKmh": 87,
+      "currentKm": 1986.95,
+      "distanceTravelledKm": 1986.95,
+      "position": null,
+      "locationConfidence": "STATION_VERIFIED",
+      "operationalUsability": "SUITABLE",
+      "conflictStatus": "UNKNOWN",
+      "scheduledData": {
+        "scheduledArrival": "03:06",
+        "scheduledDeparture": "03:06",
+        "scheduledNextStation": "BNC",
+        "scheduledStatus": "UNKNOWN"
+      },
+      "liveData": {
+        "liveStatus": "RUNNING",
+        "liveDelayMinutes": 20,
+        "liveNextStation": "KRQ",
+        "liveCurrentStation": "VGLJ"
+      },
+      "confidence": "MEDIUM",
+      "dataFreshness": "FRESH",
+      "platform": null,
+      "originStation": "SBC",
+      "originStationName": "KSR Bengaluru",
+      "destinationStation": "NDLS",
+      "destinationStationName": "New Delhi",
+      "remainingStations": [
+        "KRQ",
+        "CIRL",
+        "DAA",
+        "SOR",
+        "KTRA",
+        "DBA",
+        "SMTL",
+        "AEH",
+        "ARI",
+        "SLV",
+        "STLI",
+        "GWL",
+        "BLNR",
+        "RRU",
+        "BAO",
+        "NUB",
+        "SANK",
+        "MRA",
+        "SIKD",
+        "HET",
+        "GHER",
+        "DHO",
+        "MIA",
+        "JJ",
+        "BHA",
+        "AGC",
+        "RKM",
+        "BFP",
+        "RNKA",
+        "KXM",
+        "DDDM",
+        "FAR",
+        "BAD",
+        "MTJ",
+        "BTSR",
+        "VRBD",
+        "AJH",
+        "CHJ",
+        "KSV",
+        "HDL",
+        "BNCR",
+        "SHLK",
+        "RDE",
+        "PWL",
+        "AST",
+        "BVH",
+        "FDN",
+        "FDB",
+        "TKDC",
+        "TKD",
+        "OKA",
+        "NZM",
+        "PGMD",
+        "TKJ",
+        "CSB",
+        "NDLS"
+      ],
+      "isTerminated": false,
+      "journeyCompleted": false,
+      "source": "LIVE",
+      "lastUpdated": "2026-09-19T03:20:32+05:30",
+      "upstreamUpdatedAt": "2026-09-19T03:20:32+05:30",
+      "fetchedAt": "2026-09-18T21:51:06.583Z",
+      "provenance": {
+        "runningStatus": {
+          "value": "RUNNING",
+          "source": "LIVE_OPERATIONAL",
+          "timestamp": "2026-09-19T03:20:32+05:30"
+        },
+        "delayMinutes": {
+          "value": 20,
+          "source": "LIVE_PROVIDER",
+          "timestamp": "2026-09-19T03:20:32+05:30"
+        },
+        "currentRouteStation": {
+          "value": "VGLJ",
+          "source": "LIVE_CURRENT_LOCATION",
+          "timestamp": "2026-09-19T03:20:32+05:30"
+        },
+        "currentStation": {
+          "value": "VGLJ",
+          "source": "LIVE_CURRENT_LOCATION",
+          "timestamp": "2026-09-19T03:20:32+05:30"
+        },
+        "nextRouteStation": {
+          "value": "KRQ",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:20:32+05:30"
+        },
+        "nextStation": {
+          "value": "KRQ",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:20:32+05:30"
+        },
+        "previousRouteStation": {
+          "value": "BJI",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:20:32+05:30"
+        },
+        "previousHalt": {
+          "value": "BINA",
+          "source": "LIVE_PREVIOUS_HALT",
+          "timestamp": "2026-09-19T03:20:32+05:30"
+        },
+        "nextHalt": {
+          "value": "GWL",
+          "source": "LIVE_NEXT_HALT",
+          "timestamp": "2026-09-19T03:20:32+05:30"
+        },
+        "originStation": {
+          "value": "SBC",
+          "source": "LIVE_TRAIN_SOURCE",
+          "timestamp": "2026-09-19T03:20:32+05:30"
+        },
+        "destinationStation": {
+          "value": "NDLS",
+          "source": "LIVE_TRAIN_DESTINATION",
+          "timestamp": "2026-09-19T03:20:32+05:30"
+        },
+        "speed": {
+          "value": 87,
+          "source": "LIVE_PROVIDER",
+          "timestamp": "2026-09-19T03:20:32+05:30"
+        }
+      },
+      "_debug": {
+        "rawSummary": {
+          "trainNumber": "12627",
+          "status": "running",
+          "delayMinutes": 20,
+          "currentLocation": {
+            "stationCode": "VGLJ",
+            "stationName": "Veerangana Lakshmibai Jhansi",
+            "sequence": 247,
+            "status": "departed",
+            "isHalt": true,
+            "distanceFromOriginKm": 1986.95,
+            "distanceFromLastStationKm": 1.45,
+            "segmentProgress": 0.13,
+            "delayMinutes": 20
+          },
+          "previousHalt": {
+            "stationCode": "BINA",
+            "stationName": "Bina Jn",
+            "sequence": 228,
+            "distance": 1832.4
+          },
+          "nextHalt": {
+            "stationCode": "GWL",
+            "stationName": "Gwalior Jn",
+            "sequence": 259,
+            "distance": 2083.1
+          },
+          "routeSequence": 247,
+          "routeStationCount": 303,
+          "origin": {
+            "code": "SBC",
+            "name": "KSR Bengaluru",
+            "lat": 12.97759,
+            "lng": 77.5684
+          },
+          "destination": {
+            "code": "NDLS",
+            "name": "New Delhi",
+            "lat": 28.64177,
+            "lng": 77.22027
+          }
+        },
+        "normalizedSummary": {
+          "trainNumber": "12627",
+          "status": "RUNNING",
+          "delayMinutes": 20,
+          "currentRouteStation": "VGLJ",
+          "nextRouteStation": "KRQ",
+          "previousRouteStation": "BJI",
+          "previousHalt": "BINA",
+          "nextHalt": "GWL",
+          "originStation": "SBC",
+          "destinationStation": "NDLS"
+        }
+      }
+    }
+  },
+  "12723": {
+    "httpStatus": 200,
+    "success": true,
+    "source": "LIVE",
+    "train": {
+      "trainId": "12723-20260918-RUN-1",
+      "trainNumber": "12723",
+      "isLive": true,
+      "trainName": "Telangana Express",
+      "runId": null,
+      "journeyId": null,
+      "serviceDate": "2026-09-18",
+      "originDate": "2026-09-18",
+      "startDate": "2026-09-18",
+      "telemetryTimestamp": "2026-09-19T03:20:56+05:30",
+      "sourceTimestamp": "2026-09-19T03:20:56+05:30",
+      "retrievedAt": "2026-09-18T21:51:09.036Z",
+      "runningStatus": "RUNNING",
+      "operationalStatus": "RUNNING",
+      "status": "RUNNING",
+      "delayMinutes": 13,
+      "delaySeconds": 780,
+      "currentRouteStation": {
+        "code": "BLNR",
+        "name": "Birlanagar",
+        "sequence": 185,
+        "status": "departed"
+      },
+      "nextRouteStation": {
+        "code": "RRU",
+        "name": "Rayaru",
+        "sequence": 186,
+        "isHalt": false
+      },
+      "previousRouteStation": {
+        "code": "GWL",
+        "name": "Gwalior Jn",
+        "sequence": 184,
+        "isHalt": true
+      },
+      "previousHalt": {
+        "code": "GWL",
+        "name": "Gwalior Jn",
+        "sequence": 184,
+        "distanceKm": 1377.3
+      },
+      "nextHalt": {
+        "code": "AGC",
+        "name": "Agra Cantt",
+        "sequence": 198,
+        "distanceKm": 1495.4
+      },
+      "currentStation": "BLNR",
+      "currentStationName": "Birlanagar",
+      "previousStation": "GWL",
+      "nextStation": "RRU",
+      "nextStationName": "Rayaru",
+      "nextHaltStation": "AGC",
+      "nextHaltName": "Agra Cantt",
+      "nextHaltEta": "04:57",
+      "lastReportedStation": "GWL",
+      "direction": "UP",
+      "speedKmph": 72,
+      "speedKmh": 72,
+      "currentKm": 1387.74,
+      "distanceTravelledKm": 1387.74,
+      "position": null,
+      "locationConfidence": "STATION_VERIFIED",
+      "operationalUsability": "SUITABLE",
+      "conflictStatus": "UNKNOWN",
+      "scheduledData": {
+        "scheduledArrival": "02:58",
+        "scheduledDeparture": "02:58",
+        "scheduledNextStation": "LKPL",
+        "scheduledStatus": "UNKNOWN"
+      },
+      "liveData": {
+        "liveStatus": "RUNNING",
+        "liveDelayMinutes": 13,
+        "liveNextStation": "RRU",
+        "liveCurrentStation": "BLNR"
+      },
+      "confidence": "MEDIUM",
+      "dataFreshness": "FRESH",
+      "platform": null,
+      "originStation": "HYB",
+      "originStationName": "Hyderabad Deccan",
+      "destinationStation": "NDLS",
+      "destinationStationName": "New Delhi",
+      "remainingStations": [
+        "RRU",
+        "BAO",
+        "NUB",
+        "SANK",
+        "MRA",
+        "SIKD",
+        "HET",
+        "GHER",
+        "DHO",
+        "MIA",
+        "JJ",
+        "BHA",
+        "AGC",
+        "RKM",
+        "BFP",
+        "RNKA",
+        "KXM",
+        "DDDM",
+        "FAR",
+        "BAD",
+        "MTJ",
+        "BTSR",
+        "VRBD",
+        "AJH",
+        "CHJ",
+        "KSV",
+        "HDL",
+        "BNCR",
+        "SHLK",
+        "RDE",
+        "PWL",
+        "AST",
+        "BVH",
+        "FDN",
+        "FDB",
+        "TKDC",
+        "TKD",
+        "OKA",
+        "NZM",
+        "PGMD",
+        "TKJ",
+        "CSB",
+        "NDLS"
+      ],
+      "isTerminated": false,
+      "journeyCompleted": false,
+      "source": "LIVE",
+      "lastUpdated": "2026-09-19T03:20:56+05:30",
+      "upstreamUpdatedAt": "2026-09-19T03:20:56+05:30",
+      "fetchedAt": "2026-09-18T21:51:09.036Z",
+      "provenance": {
+        "runningStatus": {
+          "value": "RUNNING",
+          "source": "LIVE_OPERATIONAL",
+          "timestamp": "2026-09-19T03:20:56+05:30"
+        },
+        "delayMinutes": {
+          "value": 13,
+          "source": "LIVE_PROVIDER",
+          "timestamp": "2026-09-19T03:20:56+05:30"
+        },
+        "currentRouteStation": {
+          "value": "BLNR",
+          "source": "LIVE_CURRENT_LOCATION",
+          "timestamp": "2026-09-19T03:20:56+05:30"
+        },
+        "currentStation": {
+          "value": "BLNR",
+          "source": "LIVE_CURRENT_LOCATION",
+          "timestamp": "2026-09-19T03:20:56+05:30"
+        },
+        "nextRouteStation": {
+          "value": "RRU",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:20:56+05:30"
+        },
+        "nextStation": {
+          "value": "RRU",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:20:56+05:30"
+        },
+        "previousRouteStation": {
+          "value": "GWL",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:20:56+05:30"
+        },
+        "previousHalt": {
+          "value": "GWL",
+          "source": "LIVE_PREVIOUS_HALT",
+          "timestamp": "2026-09-19T03:20:56+05:30"
+        },
+        "nextHalt": {
+          "value": "AGC",
+          "source": "LIVE_NEXT_HALT",
+          "timestamp": "2026-09-19T03:20:56+05:30"
+        },
+        "originStation": {
+          "value": "HYB",
+          "source": "LIVE_TRAIN_SOURCE",
+          "timestamp": "2026-09-19T03:20:56+05:30"
+        },
+        "destinationStation": {
+          "value": "NDLS",
+          "source": "LIVE_TRAIN_DESTINATION",
+          "timestamp": "2026-09-19T03:20:56+05:30"
+        },
+        "speed": {
+          "value": 72,
+          "source": "LIVE_PROVIDER",
+          "timestamp": "2026-09-19T03:20:56+05:30"
+        }
+      },
+      "_debug": {
+        "rawSummary": {
+          "trainNumber": "12723",
+          "status": "running",
+          "delayMinutes": 13,
+          "currentLocation": {
+            "stationCode": "BLNR",
+            "stationName": "Birlanagar",
+            "sequence": 185,
+            "status": "departed",
+            "isHalt": false,
+            "distanceFromOriginKm": 1387.74,
+            "distanceFromLastStationKm": 7.64,
+            "segmentProgress": 0.75,
+            "delayMinutes": 13
+          },
+          "previousHalt": {
+            "stationCode": "GWL",
+            "stationName": "Gwalior Jn",
+            "sequence": 184,
+            "distance": 1377.3
+          },
+          "nextHalt": {
+            "stationCode": "AGC",
+            "stationName": "Agra Cantt",
+            "sequence": 198,
+            "distance": 1495.4
+          },
+          "routeSequence": 185,
+          "routeStationCount": 228,
+          "origin": {
+            "code": "HYB",
+            "name": "Hyderabad Deccan",
+            "lat": 17.39247,
+            "lng": 78.4674
+          },
+          "destination": {
+            "code": "NDLS",
+            "name": "New Delhi",
+            "lat": 28.64177,
+            "lng": 77.22027
+          }
+        },
+        "normalizedSummary": {
+          "trainNumber": "12723",
+          "status": "RUNNING",
+          "delayMinutes": 13,
+          "currentRouteStation": "BLNR",
+          "nextRouteStation": "RRU",
+          "previousRouteStation": "GWL",
+          "previousHalt": "GWL",
+          "nextHalt": "AGC",
+          "originStation": "HYB",
+          "destinationStation": "NDLS"
+        }
+      }
+    }
+  },
+  "12704": {
+    "httpStatus": 200,
+    "success": true,
+    "source": "LIVE",
+    "train": {
+      "trainId": "12704-20260918-RUN-1",
+      "trainNumber": "12704",
+      "isLive": true,
+      "trainName": "Falaknuma Express",
+      "runId": null,
+      "journeyId": null,
+      "serviceDate": "2026-09-18",
+      "originDate": "2026-09-18",
+      "startDate": "2026-09-18",
+      "telemetryTimestamp": "2026-09-19T03:21:02+05:30",
+      "sourceTimestamp": "2026-09-19T03:21:02+05:30",
+      "retrievedAt": "2026-09-18T21:51:11.349Z",
+      "runningStatus": "RUNNING",
+      "operationalStatus": "RUNNING",
+      "status": "RUNNING",
+      "delayMinutes": 28,
+      "delaySeconds": 1680,
+      "currentRouteStation": {
+        "code": "MIPM",
+        "name": "Marripalem PH",
+        "sequence": 105,
+        "status": "departed"
+      },
+      "nextRouteStation": {
+        "code": "VSKP",
+        "name": "Visakhapatnam",
+        "sequence": 106,
+        "isHalt": true
+      },
+      "previousRouteStation": {
+        "code": "GPT",
+        "name": "Gopalapatnam Bh",
+        "sequence": 104,
+        "isHalt": false
+      },
+      "previousHalt": {
+        "code": "SLO",
+        "name": "Samalkot Jn",
+        "sequence": 83,
+        "distanceKm": 513.7
+      },
+      "nextHalt": {
+        "code": "VSKP",
+        "name": "Visakhapatnam",
+        "sequence": 106,
+        "distanceKm": 663.6
+      },
+      "currentStation": "MIPM",
+      "currentStationName": "Marripalem PH",
+      "previousStation": "SLO",
+      "nextStation": "VSKP",
+      "nextStationName": "Visakhapatnam",
+      "nextHaltStation": "VSKP",
+      "nextHaltName": "Visakhapatnam",
+      "nextHaltEta": "03:49",
+      "lastReportedStation": "SLO",
+      "direction": "UP",
+      "speedKmph": 56,
+      "speedKmh": 56,
+      "currentKm": 663.5,
+      "distanceTravelledKm": 663.5,
+      "position": null,
+      "locationConfidence": "STATION_VERIFIED",
+      "operationalUsability": "SUITABLE",
+      "conflictStatus": "UNKNOWN",
+      "scheduledData": {
+        "scheduledArrival": "03:20",
+        "scheduledDeparture": "03:20",
+        "scheduledNextStation": "LGD",
+        "scheduledStatus": "UNKNOWN"
+      },
+      "liveData": {
+        "liveStatus": "RUNNING",
+        "liveDelayMinutes": 28,
+        "liveNextStation": "VSKP",
+        "liveCurrentStation": "MIPM"
+      },
+      "confidence": "MEDIUM",
+      "dataFreshness": "FRESH",
+      "platform": 3,
+      "originStation": "SC",
+      "originStationName": "Secunderabad Jn",
+      "destinationStation": "HWH",
+      "destinationStationName": "Howrah",
+      "remainingStations": [
+        "VSKP",
+        "MIPM",
+        "GPT",
+        "SCM",
+        "SCMN",
+        "PDT",
+        "KTV",
+        "KPL",
+        "ALM",
+        "KUK",
+        "VZM",
+        "NML",
+        "GUL",
+        "GVI",
+        "CPP",
+        "BTVA",
+        "SGDM",
+        "PDU",
+        "DUSI",
+        "CHE",
+        "ULM",
+        "TIU",
+        "HCM",
+        "KBM",
+        "DGB",
+        "NWP",
+        "RMZ",
+        "PUN",
+        "PSA",
+        "SUDV",
+        "MMS",
+        "BAV",
+        "SPT",
+        "JPI",
+        "IPM",
+        "SLRD",
+        "GTA",
+        "BAM",
+        "JNP",
+        "NRSP",
+        "CAP",
+        "CAPC",
+        "GAM",
+        "HMA",
+        "RBA",
+        "KIT",
+        "KLJI",
+        "CLKA",
+        "BALU",
+        "SLZ",
+        "GNGD",
+        "KUU",
+        "KAPG",
+        "MKTP",
+        "BSDP",
+        "NKP",
+        "GLBA",
+        "TAP",
+        "DLMH",
+        "KPXR",
+        "ARGL",
+        "JBJC",
+        "HPGM",
+        "KUR",
+        "RTN",
+        "LGTR",
+        "BBS",
+        "BNBH",
+        "MCS",
+        "PTAB",
+        "BBSN",
+        "BRAG",
+        "GBK",
+        "KTJI",
+        "CTC",
+        "KNPR",
+        "MACR",
+        "NRG",
+        "KIS",
+        "SJDR",
+        "BYY",
+        "BRTG",
+        "DNM",
+        "HDS",
+        "NGMP",
+        "JEN",
+        "BRMI",
+        "JKPR",
+        "JJKR",
+        "KRIH",
+        "BTV",
+        "DLPT",
+        "MZZ",
+        "KED",
+        "KPLD",
+        "RDBR",
+        "BHC",
+        "RLJC",
+        "RNTL",
+        "MKO",
+        "SZZ",
+        "SORO",
+        "BNBR",
+        "PNPN",
+        "KHF",
+        "NGRD",
+        "BLS",
+        "TKPL",
+        "HIP",
+        "ROP",
+        "NMBR",
+        "BTS",
+        "ARD",
+        "RGT",
+        "JER",
+        "LXD",
+        "AGV",
+        "DNT",
+        "NSI",
+        "BLDA",
+        "VKD",
+        "NYA",
+        "BPE",
+        "HIJ",
+        "KGP",
+        "JPR",
+        "MPD",
+        "SMCK",
+        "BCK",
+        "DUAN",
+        "RDU",
+        "HAUR",
+        "KHAI",
+        "PKU",
+        "PKEO",
+        "NPMR",
+        "BOP",
+        "NDGJ",
+        "MCA",
+        "QGT",
+        "DTE",
+        "GGTA",
+        "BZN",
+        "KGY",
+        "BSBP",
+        "ULB",
+        "FLR",
+        "CGA",
+        "BVA",
+        "NALR",
+        "ABB",
+        "SEL",
+        "ADL",
+        "MRGM",
+        "SRC",
+        "RMJ",
+        "DSNR",
+        "TPKR",
+        "HWH"
+      ],
+      "isTerminated": false,
+      "journeyCompleted": false,
+      "source": "LIVE",
+      "lastUpdated": "2026-09-19T03:21:02+05:30",
+      "upstreamUpdatedAt": "2026-09-19T03:21:02+05:30",
+      "fetchedAt": "2026-09-18T21:51:11.349Z",
+      "provenance": {
+        "runningStatus": {
+          "value": "RUNNING",
+          "source": "LIVE_OPERATIONAL",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "delayMinutes": {
+          "value": 28,
+          "source": "LIVE_PROVIDER",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "currentRouteStation": {
+          "value": "MIPM",
+          "source": "LIVE_CURRENT_LOCATION",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "currentStation": {
+          "value": "MIPM",
+          "source": "LIVE_CURRENT_LOCATION",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "nextRouteStation": {
+          "value": "VSKP",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "nextStation": {
+          "value": "VSKP",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "previousRouteStation": {
+          "value": "GPT",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "previousHalt": {
+          "value": "SLO",
+          "source": "LIVE_PREVIOUS_HALT",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "nextHalt": {
+          "value": "VSKP",
+          "source": "LIVE_NEXT_HALT",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "originStation": {
+          "value": "SC",
+          "source": "LIVE_TRAIN_SOURCE",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "destinationStation": {
+          "value": "HWH",
+          "source": "LIVE_TRAIN_DESTINATION",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "speed": {
+          "value": 56,
+          "source": "LIVE_PROVIDER",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        }
+      },
+      "_debug": {
+        "rawSummary": {
+          "trainNumber": "12704",
+          "status": "running",
+          "delayMinutes": 28,
+          "currentLocation": {
+            "stationCode": "MIPM",
+            "stationName": "Marripalem PH",
+            "sequence": 105,
+            "status": "departed",
+            "isHalt": false,
+            "distanceFromOriginKm": 663.5,
+            "distanceFromLastStationKm": 4.5,
+            "segmentProgress": 0.98,
+            "delayMinutes": 28
+          },
+          "previousHalt": {
+            "stationCode": "SLO",
+            "stationName": "Samalkot Jn",
+            "sequence": 83,
+            "distance": 513.7
+          },
+          "nextHalt": {
+            "stationCode": "VSKP",
+            "stationName": "Visakhapatnam",
+            "sequence": 106,
+            "distance": 663.6
+          },
+          "routeSequence": 105,
+          "routeStationCount": 264,
+          "origin": {
+            "code": "SC",
+            "name": "Secunderabad Jn",
+            "lat": 17.433147,
+            "lng": 78.502443
+          },
+          "destination": {
+            "code": "HWH",
+            "name": "Howrah",
+            "lat": 22.58382,
+            "lng": 88.34221
+          }
+        },
+        "normalizedSummary": {
+          "trainNumber": "12704",
+          "status": "RUNNING",
+          "delayMinutes": 28,
+          "currentRouteStation": "MIPM",
+          "nextRouteStation": "VSKP",
+          "previousRouteStation": "GPT",
+          "previousHalt": "SLO",
+          "nextHalt": "VSKP",
+          "originStation": "SC",
+          "destinationStation": "HWH"
+        }
+      }
+    }
+  },
+  "12615": {
+    "httpStatus": 200,
+    "success": true,
+    "source": "LIVE",
+    "train": {
+      "trainId": "12615-20260917-RUN-1",
+      "trainNumber": "12615",
+      "isLive": true,
+      "trainName": "Grand Trunk Express",
+      "runId": null,
+      "journeyId": null,
+      "serviceDate": "2026-09-17",
+      "originDate": "2026-09-17",
+      "startDate": "2026-09-17",
+      "telemetryTimestamp": "2026-09-19T03:21:02+05:30",
+      "sourceTimestamp": "2026-09-19T03:21:02+05:30",
+      "retrievedAt": "2026-09-18T21:51:13.937Z",
+      "runningStatus": "RUNNING",
+      "operationalStatus": "RUNNING",
+      "status": "RUNNING",
+      "delayMinutes": 11,
+      "delaySeconds": 660,
+      "currentRouteStation": {
+        "code": "CHJ",
+        "name": "Chata",
+        "sequence": 287,
+        "status": "departed"
+      },
+      "nextRouteStation": {
+        "code": "KSV",
+        "name": "Kosi Kalan",
+        "sequence": 288,
+        "isHalt": false
+      },
+      "previousRouteStation": {
+        "code": "AJH",
+        "name": "Ajhai",
+        "sequence": 286,
+        "isHalt": false
+      },
+      "previousHalt": {
+        "code": "MTJ",
+        "name": "Mathura Jn",
+        "sequence": 283,
+        "distanceKm": 2041.9
+      },
+      "nextHalt": {
+        "code": "NZM",
+        "name": "Hazrat Nizamuddin Jn",
+        "sequence": 301,
+        "distanceKm": 2175.8
+      },
+      "currentStation": "CHJ",
+      "currentStationName": "Chata",
+      "previousStation": "MTJ",
+      "nextStation": "KSV",
+      "nextStationName": "Kosi Kalan",
+      "nextHaltStation": "NZM",
+      "nextHaltName": "Hazrat Nizamuddin Jn",
+      "nextHaltEta": "04:53",
+      "lastReportedStation": "MTJ",
+      "direction": "UP",
+      "speedKmph": 67,
+      "speedKmh": 67,
+      "currentKm": 2080.12,
+      "distanceTravelledKm": 2080.12,
+      "position": null,
+      "locationConfidence": "STATION_VERIFIED",
+      "operationalUsability": "SUITABLE",
+      "conflictStatus": "UNKNOWN",
+      "scheduledData": {
+        "scheduledArrival": "03:17",
+        "scheduledDeparture": "03:17",
+        "scheduledNextStation": "BBQ",
+        "scheduledStatus": "UNKNOWN"
+      },
+      "liveData": {
+        "liveStatus": "RUNNING",
+        "liveDelayMinutes": 11,
+        "liveNextStation": "KSV",
+        "liveCurrentStation": "CHJ"
+      },
+      "confidence": "MEDIUM",
+      "dataFreshness": "FRESH",
+      "platform": null,
+      "originStation": "MAS",
+      "originStationName": "MGR Chennai Central",
+      "destinationStation": "NDLS",
+      "destinationStationName": "New Delhi",
+      "remainingStations": [
+        "KSV",
+        "HDL",
+        "BNCR",
+        "SHLK",
+        "RDE",
+        "PWL",
+        "AST",
+        "BVH",
+        "FDN",
+        "FDB",
+        "TKDC",
+        "TKD",
+        "OKA",
+        "NZM",
+        "PGMD",
+        "TKJ",
+        "CSB",
+        "NDLS"
+      ],
+      "isTerminated": false,
+      "journeyCompleted": false,
+      "source": "LIVE",
+      "lastUpdated": "2026-09-19T03:21:02+05:30",
+      "upstreamUpdatedAt": "2026-09-19T03:21:02+05:30",
+      "fetchedAt": "2026-09-18T21:51:13.937Z",
+      "provenance": {
+        "runningStatus": {
+          "value": "RUNNING",
+          "source": "LIVE_OPERATIONAL",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "delayMinutes": {
+          "value": 11,
+          "source": "LIVE_PROVIDER",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "currentRouteStation": {
+          "value": "CHJ",
+          "source": "LIVE_CURRENT_LOCATION",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "currentStation": {
+          "value": "CHJ",
+          "source": "LIVE_CURRENT_LOCATION",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "nextRouteStation": {
+          "value": "KSV",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "nextStation": {
+          "value": "KSV",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "previousRouteStation": {
+          "value": "AJH",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "previousHalt": {
+          "value": "MTJ",
+          "source": "LIVE_PREVIOUS_HALT",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "nextHalt": {
+          "value": "NZM",
+          "source": "LIVE_NEXT_HALT",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "originStation": {
+          "value": "MAS",
+          "source": "LIVE_TRAIN_SOURCE",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "destinationStation": {
+          "value": "NDLS",
+          "source": "LIVE_TRAIN_DESTINATION",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        },
+        "speed": {
+          "value": 67,
+          "source": "LIVE_PROVIDER",
+          "timestamp": "2026-09-19T03:21:02+05:30"
+        }
+      },
+      "_debug": {
+        "rawSummary": {
+          "trainNumber": "12615",
+          "status": "running",
+          "delayMinutes": 11,
+          "currentLocation": {
+            "stationCode": "CHJ",
+            "stationName": "Chata",
+            "sequence": 287,
+            "status": "departed",
+            "isHalt": false,
+            "distanceFromOriginKm": 2080.12,
+            "distanceFromLastStationKm": 7.02,
+            "segmentProgress": 0.69,
+            "delayMinutes": 11
+          },
+          "previousHalt": {
+            "stationCode": "MTJ",
+            "stationName": "Mathura Jn",
+            "sequence": 283,
+            "distance": 2041.9
+          },
+          "nextHalt": {
+            "stationCode": "NZM",
+            "stationName": "Hazrat Nizamuddin Jn",
+            "sequence": 301,
+            "distance": 2175.8
+          },
+          "routeSequence": 287,
+          "routeStationCount": 305,
+          "origin": {
+            "code": "MAS",
+            "name": "MGR Chennai Central",
+            "lat": 13.083847,
+            "lng": 80.275512
+          },
+          "destination": {
+            "code": "NDLS",
+            "name": "New Delhi",
+            "lat": 28.64177,
+            "lng": 77.22027
+          }
+        },
+        "normalizedSummary": {
+          "trainNumber": "12615",
+          "status": "RUNNING",
+          "delayMinutes": 11,
+          "currentRouteStation": "CHJ",
+          "nextRouteStation": "KSV",
+          "previousRouteStation": "AJH",
+          "previousHalt": "MTJ",
+          "nextHalt": "NZM",
+          "originStation": "MAS",
+          "destinationStation": "NDLS"
+        }
+      }
+    }
+  },
+  "12728": {
+    "httpStatus": 200,
+    "success": true,
+    "source": "LIVE",
+    "train": {
+      "trainId": "12728-20260918-RUN-1",
+      "trainNumber": "12728",
+      "isLive": true,
+      "trainName": "Visakhapatnam Godavari SF Express",
+      "runId": null,
+      "journeyId": null,
+      "serviceDate": "2026-09-18",
+      "originDate": "2026-09-18",
+      "startDate": "2026-09-18",
+      "telemetryTimestamp": "2026-09-19T03:20:57+05:30",
+      "sourceTimestamp": "2026-09-19T03:20:57+05:30",
+      "retrievedAt": "2026-09-18T21:51:16.368Z",
+      "runningStatus": "RUNNING",
+      "operationalStatus": "RUNNING",
+      "status": "RUNNING",
+      "delayMinutes": 38,
+      "delaySeconds": 2280,
+      "currentRouteStation": {
+        "code": "DGDG",
+        "name": "Durgada Gate Halt",
+        "sequence": 97,
+        "status": "at-station"
+      },
+      "nextRouteStation": {
+        "code": "RVD",
+        "name": "Ravikampadu",
+        "sequence": 98,
+        "isHalt": false
+      },
+      "previousRouteStation": {
+        "code": "MVRM",
+        "name": "Mallavaram",
+        "sequence": 96,
+        "isHalt": false
+      },
+      "previousHalt": {
+        "code": "PAP",
+        "name": "Pithapuram",
+        "sequence": 94,
+        "distanceKm": 578.5
+      },
+      "nextHalt": {
+        "code": "ANV",
+        "name": "Annavaram",
+        "sequence": 99,
+        "distanceKm": 603.2
+      },
+      "currentStation": "DGDG",
+      "currentStationName": "Durgada Gate Halt",
+      "previousStation": "PAP",
+      "nextStation": "RVD",
+      "nextStationName": "Ravikampadu",
+      "nextHaltStation": "ANV",
+      "nextHaltName": "Annavaram",
+      "nextHaltEta": "03:28",
+      "lastReportedStation": "PAP",
+      "direction": "UP",
+      "speedKmph": 82,
+      "speedKmh": 82,
+      "currentKm": 593.4,
+      "distanceTravelledKm": 593.4,
+      "position": null,
+      "locationConfidence": "STATION_VERIFIED",
+      "operationalUsability": "SUITABLE",
+      "conflictStatus": "UNKNOWN",
+      "scheduledData": {
+        "scheduledArrival": "02:38",
+        "scheduledDeparture": "02:38",
+        "scheduledNextStation": "LKPL",
+        "scheduledStatus": "UNKNOWN"
+      },
+      "liveData": {
+        "liveStatus": "RUNNING",
+        "liveDelayMinutes": 38,
+        "liveNextStation": "RVD",
+        "liveCurrentStation": "DGDG"
+      },
+      "confidence": "MEDIUM",
+      "dataFreshness": "FRESH",
+      "platform": null,
+      "originStation": "HYB",
+      "originStationName": "Hyderabad Deccan",
+      "destinationStation": "VSKP",
+      "destinationStationName": "Visakhapatnam",
+      "remainingStations": [
+        "RVD",
+        "ANV",
+        "TMPM",
+        "HVM",
+        "TUNI",
+        "GLU",
+        "NRP",
+        "REG",
+        "YLM",
+        "NASP",
+        "BVM",
+        "KSK",
+        "AKP",
+        "THY",
+        "DVD",
+        "GPT",
+        "MIPM",
+        "VSKP"
+      ],
+      "isTerminated": false,
+      "journeyCompleted": false,
+      "source": "LIVE",
+      "lastUpdated": "2026-09-19T03:20:57+05:30",
+      "upstreamUpdatedAt": "2026-09-19T03:20:57+05:30",
+      "fetchedAt": "2026-09-18T21:51:16.368Z",
+      "provenance": {
+        "runningStatus": {
+          "value": "RUNNING",
+          "source": "LIVE_OPERATIONAL",
+          "timestamp": "2026-09-19T03:20:57+05:30"
+        },
+        "delayMinutes": {
+          "value": 38,
+          "source": "LIVE_PROVIDER",
+          "timestamp": "2026-09-19T03:20:57+05:30"
+        },
+        "currentRouteStation": {
+          "value": "DGDG",
+          "source": "LIVE_CURRENT_LOCATION",
+          "timestamp": "2026-09-19T03:20:57+05:30"
+        },
+        "currentStation": {
+          "value": "DGDG",
+          "source": "LIVE_CURRENT_LOCATION",
+          "timestamp": "2026-09-19T03:20:57+05:30"
+        },
+        "nextRouteStation": {
+          "value": "RVD",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:20:57+05:30"
+        },
+        "nextStation": {
+          "value": "RVD",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:20:57+05:30"
+        },
+        "previousRouteStation": {
+          "value": "MVRM",
+          "source": "ROUTE_SEQUENCE",
+          "timestamp": "2026-09-19T03:20:57+05:30"
+        },
+        "previousHalt": {
+          "value": "PAP",
+          "source": "LIVE_PREVIOUS_HALT",
+          "timestamp": "2026-09-19T03:20:57+05:30"
+        },
+        "nextHalt": {
+          "value": "ANV",
+          "source": "LIVE_NEXT_HALT",
+          "timestamp": "2026-09-19T03:20:57+05:30"
+        },
+        "originStation": {
+          "value": "HYB",
+          "source": "LIVE_TRAIN_SOURCE",
+          "timestamp": "2026-09-19T03:20:57+05:30"
+        },
+        "destinationStation": {
+          "value": "VSKP",
+          "source": "LIVE_TRAIN_DESTINATION",
+          "timestamp": "2026-09-19T03:20:57+05:30"
+        },
+        "speed": {
+          "value": 82,
+          "source": "LIVE_PROVIDER",
+          "timestamp": "2026-09-19T03:20:57+05:30"
+        }
+      },
+      "_debug": {
+        "rawSummary": {
+          "trainNumber": "12728",
+          "status": "running",
+          "delayMinutes": 38,
+          "currentLocation": {
+            "stationCode": "DGDG",
+            "stationName": "Durgada Gate Halt",
+            "sequence": 97,
+            "status": "at-station",
+            "isHalt": false,
+            "distanceFromOriginKm": 593.4,
+            "distanceFromLastStationKm": 0,
+            "delayMinutes": 38
+          },
+          "previousHalt": {
+            "stationCode": "PAP",
+            "stationName": "Pithapuram",
+            "sequence": 94,
+            "distance": 578.5
+          },
+          "nextHalt": {
+            "stationCode": "ANV",
+            "stationName": "Annavaram",
+            "sequence": 99,
+            "distance": 603.2
+          },
+          "routeSequence": 97,
+          "routeStationCount": 115,
+          "origin": {
+            "code": "HYB",
+            "name": "Hyderabad Deccan",
+            "lat": 17.39247,
+            "lng": 78.4674
+          },
+          "destination": {
+            "code": "VSKP",
+            "name": "Visakhapatnam",
+            "lat": 17.721435,
+            "lng": 83.289972
+          }
+        },
+        "normalizedSummary": {
+          "trainNumber": "12728",
+          "status": "RUNNING",
+          "delayMinutes": 38,
+          "currentRouteStation": "DGDG",
+          "nextRouteStation": "RVD",
+          "previousRouteStation": "MVRM",
+          "previousHalt": "PAP",
+          "nextHalt": "ANV",
+          "originStation": "HYB",
+          "destinationStation": "VSKP"
+        }
+      }
+    }
+  }
+}

@@ -433,14 +433,6 @@ export const RealRailwayMap: React.FC<RealRailwayMapProps> = ({
           positioningMethod = 'STATION_SNAP';
           confidenceState = `MEDIUM (Approaching ${matchNext.code})`;
           hasValidCoords = true;
-        } else if (train.currentKm != null && train.currentKm >= 0 && train.currentKm <= 85) {
-          // SCR Vijayawada division fallback only if within local corridor chainage bounds
-          const ratio = Math.max(0, Math.min(1, train.currentKm / 80.0));
-          lat = 16.5193 - ratio * (16.5193 - 16.2430);
-          lng = 80.6231 - ratio * (80.6231 - 80.6480);
-          positioningMethod = 'LOCAL_CHAINAGE_SNAP';
-          confidenceState = 'LOW (Inferred from Corridor KM)';
-          hasValidCoords = true;
         }
       }
 
@@ -1049,10 +1041,6 @@ export const RealRailwayMap: React.FC<RealRailwayMapProps> = ({
         } else if (matchCurrent) {
           lat = matchCurrent.lat;
           lng = matchCurrent.lng;
-        } else if (train.currentKm != null && train.currentKm >= 0 && train.currentKm <= 85) {
-          const ratio = Math.max(0, Math.min(1, train.currentKm / 80.0));
-          lat = 16.5193 - ratio * (16.5193 - 16.2430);
-          lng = 80.6231 - ratio * (80.6231 - 80.6480);
         }
       }
       if (lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng)) {

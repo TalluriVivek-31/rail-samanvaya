@@ -3,7 +3,7 @@
 // In LIVE mode, the RailRadar API is the ONLY source. No silent fallback to demo data.
 // In DEMO mode, authentic high-density Indian Railways corridor telemetry is provided.
 
-import type { LiveTrainPosition, StationBoardEntry, DataSource } from '../types/samnvay';
+import type { LiveTrainPosition, StationBoardEntry, DataSource, NormalizedRailState, OperationalDataCompleteness } from '../types/samnvay';
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -355,7 +355,7 @@ export async function fetchLiveTrainStatus(
         source: 'UNAVAILABLE',
         data: null,
         timestamp: new Date().toISOString(),
-        error: 'RailRadar backend route unavailable in production (received HTML instead of JSON).'
+        error: 'LIVE DATA UNAVAILABLE'
       };
     }
 
@@ -368,24 +368,25 @@ export async function fetchLiveTrainStatus(
         source: 'UNAVAILABLE',
         data: null,
         timestamp: new Date().toISOString(),
-        error: 'Train data unavailable'
+        error: 'LIVE DATA UNAVAILABLE'
       };
     }
 
     if (res.ok && json.success && json.data) {
       return {
-        source: json.source as DataSource,
+        source: (json.source as DataSource) || 'LIVE',
         data: json.data,
         timestamp: json.timestamp || new Date().toISOString(),
         upstreamUpdatedAt: json.upstreamUpdatedAt || json.data?.upstreamUpdatedAt,
         cached: json.meta?.cached
       };
     } else {
+      const is404 = res.status === 404 || json?.errorCode === 'TRAIN_NOT_FOUND';
       return {
         source: 'UNAVAILABLE',
         data: null,
         timestamp: json?.timestamp || new Date().toISOString(),
-        error: json?.error || 'Train data unavailable'
+        error: is404 ? 'TRAIN NOT FOUND' : (json?.error || json?.message || 'LIVE DATA UNAVAILABLE')
       };
     }
   } catch (err) {
@@ -393,7 +394,7 @@ export async function fetchLiveTrainStatus(
       source: 'UNAVAILABLE',
       data: null,
       timestamp: new Date().toISOString(),
-      error: 'Train data unavailable'
+      error: 'LIVE DATA UNAVAILABLE'
     };
   }
 }
@@ -528,55 +529,173 @@ export async function invalidateServerCache(trainNumber?: string): Promise<boole
 export const CORRIDOR_TRAINS = ['12627', '12723', '17011', '20834', '12711', '12615'];
 
 /**
- * Fetch all corridor trains in parallel with mode & refresh flags.
+ * Build NormalizedRailState with operational completeness metrics
+ */
+export function buildNormalizedRailState(
+  trains: LiveTrainPosition[],
+  source: DataSource,
+  status: 'READY' | 'UNAVAILABLE' | 'ERROR',
+  errorCode?: string,
+  error?: string
+): NormalizedRailState {
+  const now = new Date().toISOString();
+  let totalWithValidCoords = 0;
+  let totalWithValidSpeed = 0;
+  let totalWithValidDelay = 0;
+  let totalWithConfirmedLoc = 0;
+
+  for (const t of trains) {
+    if (t.latitude !== undefined && t.longitude !== undefined && t.latitude !== 0 && t.longitude !== 0) {
+      totalWithValidCoords++;
+    }
+    if (typeof t.speedKmph === 'number' && !isNaN(t.speedKmph)) {
+      totalWithValidSpeed++;
+    }
+    if (typeof t.delaySeconds === 'number' || typeof t.delayMinutes === 'number') {
+      totalWithValidDelay++;
+    }
+    if (t.locationConfidence === 'GPS_VERIFIED' || t.locationConfidence === 'STATION_VERIFIED') {
+      totalWithConfirmedLoc++;
+    }
+  }
+
+  const count = trains.length;
+  const completeness: OperationalDataCompleteness = {
+    validCoordinatesRatio: count > 0 ? totalWithValidCoords / count : 0,
+    validSpeedRatio: count > 0 ? totalWithValidSpeed / count : 0,
+    validDelayRatio: count > 0 ? totalWithValidDelay / count : 0,
+    locationConfirmedRatio: count > 0 ? totalWithConfirmedLoc / count : 0
+  };
+
+  return {
+    trains,
+    source,
+    status,
+    errorCode: errorCode as any,
+    completeness,
+    lastRefreshed: now,
+    error
+  };
+}
+
+/**
+ * Fetch all corridor trains with mode & refresh flags.
+ * Connects directly to /api/railradar/corridor/live with Section 21 error handling.
  */
 export async function fetchAllCorridorTrains(
-  options: { mode?: 'live' | 'demo'; refresh?: boolean } = {}
+  options: { mode?: 'live' | 'demo'; refresh?: boolean; trains?: string[] } = {}
 ): Promise<{
   trains: LiveTrainPosition[];
   source: DataSource;
+  status: 'READY' | 'UNAVAILABLE' | 'ERROR';
+  errorCode?: string;
   timestamp: string;
   upstreamUpdatedAt?: string;
   errors: string[];
+  normalizedState: NormalizedRailState;
+  backoffSeconds?: number;
+  nextRetryAt?: string;
 }> {
   const mode = options.mode || 'live';
-  const results = await Promise.all(
-    CORRIDOR_TRAINS.map(num => fetchLiveTrainStatus(num, { ...options, mode }))
-  );
+  const refresh = !!options.refresh;
 
-  const trains: LiveTrainPosition[] = [];
-  const errors: string[] = [];
-  let latestUpstreamUpdate: string | undefined;
+  // DEMO MODE: Provide authentic demo telemetry only if explicitly requested
+  if (mode === 'demo') {
+    const demoTrainsList = Object.values(STATIC_DEMO_TRAINS);
+    const normalized = buildNormalizedRailState(demoTrainsList, 'DEMO', 'READY');
+    return {
+      trains: demoTrainsList,
+      source: 'DEMO',
+      status: 'READY',
+      timestamp: new Date().toISOString(),
+      upstreamUpdatedAt: new Date().toISOString(),
+      errors: [],
+      normalizedState: normalized
+    };
+  }
 
-  let liveCount = 0;
-  let demoCount = 0;
+  // LIVE MODE: Exclusively query backend corridor live telemetry endpoint
+  const params = new URLSearchParams();
+  params.set('mode', 'live');
+  if (refresh) params.set('refresh', 'true');
+  if (options.trains && options.trains.length > 0) {
+    params.set('trains', options.trains.join(','));
+  }
 
-  for (const r of results) {
-    if (r.data) {
-      trains.push(r.data);
-      if (r.upstreamUpdatedAt && (!latestUpstreamUpdate || r.upstreamUpdatedAt > latestUpstreamUpdate)) {
-        latestUpstreamUpdate = r.upstreamUpdatedAt;
+  try {
+    const res = await fetch(`/api/railradar/corridor/live?${params.toString()}`);
+    const contentType = res.headers.get('content-type') || '';
+    const text = await res.text();
+    const isHtml = text.trim().startsWith('<') || contentType.includes('text/html');
+
+    if (isHtml || !res.ok) {
+      let errCode = 'PROVIDER_UNAVAILABLE';
+      let errMsg = `Live corridor telemetry unavailable (HTTP ${res.status})`;
+      let backoffSec: number | undefined;
+      let nextRetry: string | undefined;
+
+      if (!isHtml) {
+        try {
+          const errJson = JSON.parse(text);
+          errCode = errJson.errorCode || errCode;
+          errMsg = errJson.message || errJson.error || errMsg;
+          backoffSec = errJson.backoffSeconds;
+          nextRetry = errJson.nextRetryAt;
+        } catch {}
       }
+      const normalized = buildNormalizedRailState([], 'UNAVAILABLE', 'UNAVAILABLE', errCode, errMsg);
+      return {
+        trains: [],
+        source: 'UNAVAILABLE',
+        status: 'UNAVAILABLE',
+        errorCode: errCode,
+        timestamp: new Date().toISOString(),
+        errors: [errMsg],
+        normalizedState: normalized,
+        backoffSeconds: backoffSec,
+        nextRetryAt: nextRetry
+      };
     }
-    if (r.source === 'LIVE') liveCount++;
-    if (r.source === 'DEMO') demoCount++;
-    if (r.error) errors.push(r.error);
-  }
 
-  let overallSource: DataSource;
-  if (mode === 'live') {
-    overallSource = liveCount > 0 ? 'LIVE' : 'UNAVAILABLE';
-  } else {
-    overallSource = 'DEMO';
+    const json = JSON.parse(text);
+    if (json.success && Array.isArray(json.trains) && json.trains.length > 0) {
+      const normalized = buildNormalizedRailState(json.trains, 'LIVE', 'READY');
+      return {
+        trains: json.trains,
+        source: 'LIVE',
+        status: 'READY',
+        timestamp: json.timestamp || new Date().toISOString(),
+        upstreamUpdatedAt: json.upstreamUpdatedAt,
+        errors: [],
+        normalizedState: normalized
+      };
+    } else {
+      const errCode = json.errorCode || 'NO_TELEMETRY';
+      const errMsg = json.message || json.error || 'No live trains currently active in corridor';
+      const normalized = buildNormalizedRailState([], 'UNAVAILABLE', 'UNAVAILABLE', errCode, errMsg);
+      return {
+        trains: [],
+        source: 'UNAVAILABLE',
+        status: 'UNAVAILABLE',
+        errorCode: errCode,
+        timestamp: json.timestamp || new Date().toISOString(),
+        errors: [errMsg],
+        normalizedState: normalized
+      };
+    }
+  } catch (err: any) {
+    const errMsg = err?.message || 'Failed to fetch live corridor trains';
+    const normalized = buildNormalizedRailState([], 'UNAVAILABLE', 'ERROR', 'PROVIDER_UNAVAILABLE', errMsg);
+    return {
+      trains: [],
+      source: 'UNAVAILABLE',
+      status: 'ERROR',
+      errorCode: 'PROVIDER_UNAVAILABLE',
+      timestamp: new Date().toISOString(),
+      errors: [errMsg],
+      normalizedState: normalized
+    };
   }
-
-  return {
-    trains: overallSource === 'UNAVAILABLE' ? [] : trains,
-    source: overallSource,
-    timestamp: new Date().toISOString(),
-    upstreamUpdatedAt: latestUpstreamUpdate,
-    errors: overallSource === 'DEMO' ? [] : errors,
-  };
 }
 
 // -----------------------------------------------------------------------------
@@ -942,4 +1061,42 @@ export async function fetchTrainRouteCoordinates(trainNumber: string): Promise<{
   if (!res.success || !res.data) return null;
   return extractRouteCoordinates(res.data);
 }
+
+export interface RailRadarMetrics {
+  uptimeSeconds: number;
+  upstreamCalls: number;
+  successfulCalls: number;
+  rateLimitedCalls: number;
+  authFailedCalls: number;
+  degradedCalls: number;
+  deduplicatedCalls: number;
+  cacheHits: number;
+  averageResponseTimeMs: number;
+  governor: {
+    queueLength: number;
+    inFlightCount: number;
+    isBackingOff: boolean;
+    backoffCount: number;
+    backoffUntil: string | null;
+    cacheEntriesCount: number;
+  };
+  circuitBreaker: {
+    isTripped: boolean;
+  };
+}
+
+/**
+ * Diagnostic helper to query server-side request governor metrics (Section 30 & 31)
+ */
+export async function fetchRailRadarMetrics(): Promise<RailRadarMetrics | null> {
+  try {
+    const res = await fetch('/api/railradar/metrics');
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.data || null;
+  } catch {
+    return null;
+  }
+}
+
 

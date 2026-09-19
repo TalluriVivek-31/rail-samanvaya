@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { LoginPage } from './components/auth/LoginPage';
-import { FloatingHeader, Sidebar, SamnvayPage } from './components/layout';
+import { FloatingHeader, Sidebar, MobileBottomNav, SamnvayPage } from './components/layout';
 import {
   OverviewPage,
   BlockRequestsPage,
@@ -109,20 +109,20 @@ export const App: React.FC = () => {
 
   // 4. Authenticated Control Room Command Center
   return (
-    <div className="min-h-screen bg-[#F2F2EF] text-[#393D3F] flex flex-col font-sans selection:bg-[#393D3F] selection:text-white">
+    <div className="min-h-screen bg-[#F2F2EF] text-[#393D3F] flex flex-col font-sans selection:bg-[#393D3F] selection:text-white overflow-x-hidden">
       {/* Editorial Floating Header */}
       <FloatingHeader />
 
       {/* Main Workspace Layout (Sidebar + Operations Viewport) */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Role-Filtered Modern Navigation Rail */}
-        <Sidebar 
-          currentPage={activePage} 
-          onSelectPage={setCurrentPage} 
+        {/* Role-Filtered Modern Navigation Rail — hidden on mobile, shown md+ */}
+        <Sidebar
+          currentPage={activePage}
+          onSelectPage={setCurrentPage}
         />
 
         {/* Main Operations Viewport */}
-        <main className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6 pt-1 bg-[#F2F2EF]">
+        <main className="flex-1 overflow-y-auto px-3 sm:px-6 pb-20 md:pb-6 pt-1 bg-[#F2F2EF] min-w-0">
           <div className="max-w-7xl mx-auto">
             <ErrorBoundary
               fallbackTitle="Operational Viewport Notice"
@@ -186,17 +186,20 @@ export const App: React.FC = () => {
         </main>
       </div>
 
-      {/* Modern Status Footer */}
-      <footer className="bg-white border-t border-[#E8E6DF] py-2 px-6 flex flex-wrap items-center justify-between text-[11px] font-mono text-[#546A7B] shadow-xs">
-        <div className="flex items-center space-x-3">
+      {/* Mobile Bottom Navigation — visible only on small screens */}
+      <MobileBottomNav currentPage={activePage} onSelectPage={setCurrentPage} />
+
+      {/* Status Footer — hidden on mobile (bottom nav takes its place visually) */}
+      <footer className="hidden sm:flex bg-white border-t border-[#E8E6DF] py-2 px-4 sm:px-6 flex-wrap items-center justify-between gap-y-1 text-[11px] font-mono text-[#546A7B] shadow-xs">
+        <div className="flex items-center flex-wrap gap-x-3 gap-y-0.5">
           <span className="text-[#393D3F] font-extrabold">RAIL SAMANVAYA</span>
-          <span>•</span>
-          <span>INDIAN RAILWAYS · BZA CONTROL CENTER</span>
-          <span>•</span>
-          <span className="text-[#16A34A] font-extrabold">AUTHENTICATED DISPATCH</span>
+          <span className="hidden sm:inline">•</span>
+          <span className="hidden sm:inline">INDIAN RAILWAYS · BZA CONTROL CENTER</span>
+          <span className="hidden md:inline">•</span>
+          <span className="hidden md:inline text-[#16A34A] font-extrabold">AUTHENTICATED DISPATCH</span>
         </div>
-        <div className="flex items-center space-x-2">
-          <span>CONSOLE:</span>
+        <div className="flex items-center gap-x-2">
+          <span className="hidden sm:inline">CONSOLE:</span>
           <span className="text-[#393D3F] font-bold">{state.currentUser.employeeId} ({state.currentUser.role})</span>
           <span>|</span>
           <span className="text-[#16A34A] font-bold">G&SR CHAPTER XV</span>
